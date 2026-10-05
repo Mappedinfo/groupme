@@ -8,8 +8,8 @@
   <meta name="description" content="自由设置人数、多次作业、各次组数与类型，选择不同类型混合或同类内组队，比较两种自动分组方案。">
   <title>Groupme · 多认识一些新同学</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./src/style.css?v=size-1">
-  <script type="module" src="./src/app.js?v=size-1"></script>
+  <link rel="stylesheet" href="./src/style.css?v=types-quick-1">
+  <script type="module" src="./src/app.js?v=types-quick-1"></script>
 </head>
 <body>
   <a class="skip-link" href="#settings">跳到分组设置</a>
@@ -70,6 +70,7 @@
           <p id="round-summary" class="small-note"></p>
           <div id="groups" class="groups-grid"></div>
           <div class="legend"><span><i class="legend-dot selected"></i>当前同学</span><span><i class="legend-dot fresh"></i>本次新队友</span><span><i class="legend-dot known"></i>本次曾合作队友</span></div>
+          <div id="type-legend" class="type-legend" hidden><p id="type-reference"></p><div class="legend"><span><i class="legend-border same" aria-hidden="true"></i>同类型 · 实线</span><span><i class="legend-border different" aria-hidden="true"></i>不同类型 · 虚线</span></div></div>
         </section>
         <aside class="person-panel" aria-labelledby="person-title">
           <label class="eyebrow" for="person-select">每个人的合作机会</label>
@@ -97,8 +98,19 @@
   <dialog id="types-dialog" aria-labelledby="types-title"><form id="types-form" novalidate>
     <div class="dialog-heading"><h2 id="types-title">编辑同学类型</h2><button class="icon-button" id="close-types" type="button" aria-label="关闭类型编辑">×</button></div>
     <p class="dialog-copy" id="types-hint"></p>
+    <section class="quick-types" aria-labelledby="quick-types-title">
+      <div class="quick-types-heading"><h3 id="quick-types-title">先快捷划分类别</h3><div class="quick-type-tabs" role="group" aria-label="快捷类别数"><button type="button" data-quick-count="2" aria-pressed="true">分 2 类</button><button type="button" data-quick-count="3" aria-pressed="false">分 3 类</button></div></div>
+      <p class="small-note">按编号从前往后分配，最后一类自动填入剩余人数。这是人员类别，作业仍至少分 3 个小组。</p>
+      <div id="quick-type-fields" class="quick-type-fields"></div>
+      <p id="quick-type-preview" class="small-note" aria-live="polite"></p>
+      <div class="quick-type-actions"><button id="balance-quick-types" class="button button-plain" type="button">恢复均分人数</button><button id="apply-quick-types" class="button button-outline" type="button">应用到下方列表</button></div>
+    </section>
+    <div class="individual-types-heading"><h3>再逐人调整</h3><span class="small-note">点击下拉选择类型</span></div>
+    <div class="add-type-row"><label class="sr-only" for="new-type-label">新增类型名称</label><input id="new-type-label" type="text" maxlength="40" placeholder="新类型，例如熟练"><button id="add-type-label" class="button button-outline" type="button">添加类型</button></div>
     <details class="bulk-types"><summary>从表格批量粘贴类型 <span aria-hidden="true">＋</span></summary><p class="small-note">按同学编号顺序，每行一个类型；空行表示未分类。</p><label for="types-bulk" class="sr-only">按编号顺序，每行一个类型</label><textarea id="types-bulk" rows="5" spellcheck="false"></textarea><button id="apply-type-bulk" type="button" class="button button-outline">填入下方列表</button></details>
-    <div class="types-table-heading" aria-hidden="true"><span>同学 · 按编号对应</span><span>类型 / 水平</span></div><div id="type-rows" class="type-rows"></div><datalist id="type-suggestions"></datalist>
+    <div class="types-table-heading" aria-hidden="true"><span>同学 · 按编号对应</span><span>类型 / 水平</span></div><div id="type-rows" class="type-rows"></div>
+    <p id="type-editor-summary" class="small-note" aria-live="polite"></p>
+    <p id="type-editor-status" class="small-note" role="status"></p>
     <p id="types-error" class="input-error" role="alert"></p>
     <div class="dialog-actions"><span class="small-note">每个标签最多 20 个字符</span><button type="submit" class="button button-dark">保存类型设置</button></div>
   </form></dialog>

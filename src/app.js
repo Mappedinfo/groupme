@@ -1,7 +1,8 @@
 import {
   LIMITS, validateConfig, validateSchedule, analyzeSchedule, evaluateProof,
   compareMetrics, parseNames, defaultNames, getSizeOptions, getAutomaticGroupCounts,
-} from './grouping.js?v=size-1';
+} from './grouping.js?v=types-quick-1';
+import { quickTypeSizes, createQuickTypePlan, normalizeTypeLabels } from './type-editor.js?v=types-quick-1';
 
 const $ = selector => document.querySelector(selector);
 const objectives = ['fair', 'coverage'];
@@ -45,6 +46,9 @@ function preferredSize() { return $('#size-input').value.trim() === '' ? null : 
 function validPeople(people) { return Number.isInteger(people) && people >= LIMITS.minPeople && people <= LIMITS.maxPeople; }
 function typeMode() { return $('input[name="type-mode"]:checked').value; }
 function typeOf(id, result = currentResult()) { return result?.config.types?.[id - 1] ?? '未分类'; }
+function showTypes(result) { return result.config.typeMode !== 'off' || result.config.types.some(type => type !== '未分类'); }
+function typeRelation(id, result) { return typeOf(id, result) === typeOf(state.person, result) ? 'same' : 'different'; }
+function typeRelationText(id, result) { return `类型 ${typeOf(id, result)}，与当前同学${typeRelation(id, result) === 'same' ? '同类型' : '不同类型'}`; }
 function typeCounts(types) {
   const counts = new Map();
   types.forEach(type => counts.set(type, (counts.get(type) ?? 0) + 1));
@@ -318,7 +322,7 @@ function renderRound() {
       button.setAttribute('aria-label', `查看 ${displayName(id)} 的合作情况`);
       button.title = displayName(id);
       if (nameOf(id) !== `${id}号`) button.append(node('small', '', String(id)));
-      if (result.config.typeMode !== 'off') {
+      if (showTypes(result)) {
         button.append(node('span', 'chip-type', typeOf(id, result)));
         button.setAttribute('aria-label', `查看 ${displayName(id)}（${typeOf(id, result)}）的合作情况`);
       }
@@ -326,7 +330,7 @@ function renderRound() {
       people.append(button);
     });
     section.append(heading, people);
-    if (result.config.typeMode !== 'off') section.append(node('p', 'group-types', typeCounts(group.map(id => typeOf(id, result))).map(([type, count]) => `${type} ${count} 人`).join(' · ')));
+    if (showTypes(result)) section.append(node('p', 'group-types', typeCounts(group.map(id => typeOf(id, result))).map(([type, count]) => `${type} ${count} 人`).join(' · ')));
     container.append(section);
   });
   renderPerson(false);
@@ -341,8 +345,11 @@ function renderPerson(shouldAnnounce = true) {
   const within = result.config.typeMode === 'within';
   const eligible = within ? person.eligibleTeammates : state.config.people - 1;
   $('#person-total').textContent = `/ ${eligible} 位${within ? '同类型' : '其他'}同学`;
-  $('#person-type').hidden = result.config.typeMode === 'off';
+  const typed = showTypes(result);
+  $('#person-type').hidden = !typed;
   $('#person-type').textContent = `类型：${typeOf(state.person, result)}`;
+  $('#type-legend').hidden = !typed;
+  $('#type-reference').textContent = `边框以当前同学 ${displayName(state.person)}（${typeOf(state.person, result)}）为参照；颜色仍表示新旧队友。`;
   $('#person-bar').style.width = `${eligible ? person.uniqueCount / eligible * 100 : 0}%`;
   $('#person-caption').textContent = person.uniqueCount === eligible ? `已经和每一位${within ? '同类型' : '其他'}同学合作。` : `还有 ${eligible - person.uniqueCount} 位${within ? '同类型' : ''}同学尚未合作。`;
   $('#mate-title').textContent = `作业 ${state.round + 1} · 第 ${thisRound.groupIndex + 1} 组 · ${thisRound.newTeammates.length} 位新队友`;
@@ -350,7 +357,9 @@ function renderPerson(shouldAnnounce = true) {
   thisRound.teammates.forEach(id => {
     const button = node('button', 'person-chip', displayName(id)); button.type = 'button';
     button.dataset.relation = thisRound.newTeammates.includes(id) ? 'fresh' : 'known';
-    button.setAttribute('aria-label', `${displayName(id)}，${thisRound.newTeammates.includes(id) ? '本次新队友' : '之前已合作'}，查看合作情况`);
+    button.dataset.typeRelation = typed ? typeRelation(id, result) : '';
+    if (typed) button.append(node('span', 'chip-type', typeOf(id, result)));
+    button.setAttribute('aria-label', `${displayName(id)}，${thisRound.newTeammates.includes(id) ? '本次新队友' : '之前已合作'}${typed ? `，${typeRelationText(id, result)}` : ''}，查看合作情况`);
     button.addEventListener('click', () => { state.person = id; renderPerson(); save(); $('#person-select').focus({ preventScroll:true }); });
     mates.append(button);
   });
@@ -358,6 +367,9 @@ function renderPerson(shouldAnnounce = true) {
     const id = Number(button.dataset.person);
     button.setAttribute('aria-pressed', String(id === state.person));
     button.dataset.relation = thisRound.newTeammates.includes(id) ? 'fresh' : thisRound.teammates.includes(id) ? 'known' : '';
+    button.dataset.typeRelation = typed ? typeRelation(id, result) : '';
+    const relation = id === state.person ? '当前同学' : thisRound.newTeammates.includes(id) ? '本次新队友' : thisRound.teammates.includes(id) ? '本次曾合作队友' : '本次其他组同学';
+    button.setAttribute('aria-label', `${displayName(id)}，${relation}${typed ? `，${typeRelationText(id, result)}` : ''}，查看合作情况`);
   });
   const history = $('#person-history'); history.replaceChildren();
   person.rounds.forEach(round => {
@@ -385,10 +397,11 @@ function renderResults() {
   const denominator = within ? m.eligiblePairs : m.possiblePairs;
   $('#coverage-label').textContent = within ? '同类型内覆盖' : '全班覆盖';
   $('#coverage-value').textContent = `${m.uniquePairs}/${denominator} 对（${(m.uniquePairs / denominator * 100).toFixed(1)}%）`;
-  $('#type-result-note').hidden = result.config.typeMode === 'off';
+  $('#type-result-note').hidden = !showTypes(result);
   $('#type-result-note').textContent = within
     ? `只在同类型内计算可合作范围。全班实际覆盖 ${m.uniquePairs}/${m.possiblePairs} 对（${(m.coverage * 100).toFixed(1)}%）；不同类型之间不安排合作。`
-    : '每种类型在各组的人数差至多 1，再尽量增加新队友。部分搭档可能因类型均匀分散的要求而无法同组。';
+    : result.config.typeMode === 'mix' ? '每种类型在各组的人数差至多 1，再尽量增加新队友。部分搭档可能因类型均匀分散的要求而无法同组。'
+    : '本方案不使用类型限制；标签与实虚线仅用于查看人员类型。';
   $('#repeat-count').textContent = m.repeatMeetings;
   const select = $('#round-select'); select.replaceChildren();
   result.assignments.forEach((groups, i) => { const option = node('option', '', `作业 ${i+1} · ${groups.length} 组`); option.value = String(i); select.append(option); });
@@ -445,7 +458,7 @@ function startSolve() {
   $('#progress-text').textContent = `正在为 ${config.people} 人、${config.rounds} 次作业比较两种目标；下方保留上次结果。`;
   for (const goal of objectives) {
     try {
-      const worker = new Worker(new URL('./solver-worker.js?v=size-1', import.meta.url), { type:'module' });
+      const worker = new Worker(new URL('./solver-worker.js?v=types-quick-1', import.meta.url), { type:'module' });
       job.workers.push(worker);
       worker.onmessage = ({ data }) => {
         if (activeJob !== job || data.requestId !== `${job.id}-${goal}` || job.finished.has(goal)) return;
@@ -487,7 +500,7 @@ function cancelSolve() {
 function rosterText() {
   const result = currentResult();
   const lines = [`Groupme · ${state.config.people} 人 / ${state.config.rounds} 次作业`, `目标：${titles[state.objective]}`, `小组规模：${sizeSettingDescription(result.config)}`, `类型方式：${typeTitles[result.config.typeMode]}`, resultQuality(result), ''];
-  const rosterName = id => result.config.typeMode === 'off' ? displayName(id) : `${displayName(id)}【${typeOf(id, result)}】`;
+  const rosterName = id => !showTypes(result) ? displayName(id) : `${displayName(id)}【${typeOf(id, result)}】`;
   result.assignments.forEach((groups, round) => {
     lines.push(`作业 ${round+1}（${groups.length} 组）`);
     groups.forEach((group, index)=>lines.push(`第 ${index+1} 组：${group.map(rosterName).join('、')}`)); lines.push('');
@@ -495,6 +508,7 @@ function rosterText() {
   const m = result.metrics;
   lines.push(`每人认识 ${m.minimumTeammates}–${m.maximumTeammates} 位不同同学；${result.config.typeMode === 'within' ? `同类型内 ${m.uniquePairs}/${m.eligiblePairs} 对；` : ''}全班 ${m.uniquePairs}/${m.possiblePairs} 对不同搭档；重复碰面 ${m.repeatMeetings} 对次。`);
   if (result.config.typeMode === 'mix') lines.push('每种类型在各组的人数差至多 1；全班覆盖比例不代表全部搭档均能在此限制下同组。');
+  if (result.config.typeMode === 'off' && showTypes(result)) lines.push('类型标签仅供查看，本方案未使用类型限制。');
   return lines.join('\n');
 }
 
@@ -539,57 +553,139 @@ $('#names-form').addEventListener('submit', event => {
 
 const typesDialog = $('#types-dialog');
 let typesEditorPeople = 0;
-function normalizeTypes(values) {
-  return values.map((value, index) => {
-    const type = value.trim() || '未分类';
-    if ([...type].length > 20) throw new Error(`${index + 1} 号同学的类型不能超过 20 个字符。`);
-    return type;
-  });
-}
+let editorCatalog = [];
+let quickCategoryCount = 2;
+let quickLabels = [];
 function editorTypeFields() { return [...document.querySelectorAll('[data-type-id]')]; }
-function updateTypeSuggestions() {
-  $('#type-suggestions').replaceChildren(...[...new Set(editorTypeFields().map(input => input.value.trim()).filter(Boolean))].map(value => {
-    const option = node('option'); option.value = value; return option;
-  }));
+function updateEditorSummary() {
+  const types = editorTypeFields().map(input => input.value);
+  $('#type-editor-summary').textContent = `当前列表：${typeCounts(types).map(([label, count]) => `${label} ${count} 人`).join(' · ')}`;
+  $('#types-bulk').value = types.join('\n');
+  $('#types-error').textContent = '';
+}
+function setEditorTypes(types) {
+  editorCatalog = [...new Set([...editorCatalog, ...types, '未分类'])];
+  editorTypeFields().forEach((select, index) => {
+    select.replaceChildren(...editorCatalog.map(label => {
+      const option = node('option', '', label); option.value = label; return option;
+    }));
+    select.value = types[index];
+  });
+  updateEditorSummary();
+}
+function readQuickPlan() {
+  return createQuickTypePlan(typesEditorPeople,
+    [...document.querySelectorAll('[data-quick-label]')].map(input => input.value),
+    [...document.querySelectorAll('[data-quick-size]')].map(input => input.value.trim() === '' ? NaN : Number(input.value)));
+}
+function updateQuickPreview() {
+  const preview = $('#quick-type-preview');
+  try {
+    const plan = readQuickPlan();
+    $('#quick-type-remainder').textContent = `${plan.sizes.at(-1)} 人`;
+    preview.textContent = `预览：${plan.ranges.map(({ label, count, start, end }) => `${label} ${count} 人（${start === end ? start : `${start}–${end}`}号）`).join('；')}。点击应用后填入列表。`;
+    preview.classList.remove('input-error');
+    $('#apply-quick-types').disabled = false;
+  } catch (error) {
+    $('#quick-type-remainder').textContent = '—';
+    preview.textContent = error.message;
+    preview.classList.add('input-error');
+    $('#apply-quick-types').disabled = true;
+  }
+}
+function renderQuickFields() {
+  document.querySelectorAll('[data-quick-count]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.quickCount) === quickCategoryCount)));
+  const sizes = quickTypeSizes(typesEditorPeople, quickCategoryCount);
+  const fields = $('#quick-type-fields'); fields.replaceChildren();
+  for (let i = 0; i < quickCategoryCount; i++) {
+    const card = node('div', 'quick-type-card');
+    const label = node('label', '', `第 ${i + 1} 类名称`);
+    const input = node('input'); input.type = 'text'; input.maxLength = 40;
+    input.value = quickLabels[i]; input.dataset.quickLabel = String(i);
+    input.addEventListener('input', () => { quickLabels[i] = input.value; updateQuickPreview(); });
+    label.append(input); card.append(label);
+    if (i < quickCategoryCount - 1) {
+      const countLabel = node('label', '', `第 ${i + 1} 类人数`);
+      const count = node('input'); count.type = 'number'; count.min = '1'; count.max = String(typesEditorPeople - quickCategoryCount + 1); count.step = '1';
+      count.value = sizes[i]; count.dataset.quickSize = String(i);
+      count.addEventListener('input', updateQuickPreview);
+      countLabel.append(count); card.append(countLabel);
+    } else {
+      const remainder = node('div', 'quick-type-remaining', '剩余人数（自动）');
+      const value = node('output'); value.id = 'quick-type-remainder'; value.setAttribute('aria-label', `第 ${i + 1} 类剩余人数`);
+      remainder.append(value); card.append(remainder);
+    }
+    fields.append(card);
+  }
+  updateQuickPreview();
 }
 $('#edit-types').addEventListener('click', () => {
   typesEditorPeople = draftPeople();
   if (!validPeople(typesEditorPeople) || activeJob) return;
   ensureTypes(typesEditorPeople);
   $('#types-title').textContent = `${typesEditorPeople} 位同学的类型`;
-  $('#types-hint').textContent = '对应上方待求解的总人数。标签按编号与同学绑定；保存后重新求解才会应用到分组。';
+  $('#types-hint').textContent = '可快捷划分，再逐人调整。标签按编号绑定；保存后重新求解才会应用到结果，关闭则放弃本次编辑。';
   $('#types-error').textContent = '';
+  $('#type-editor-status').textContent = '';
+  $('#new-type-label').value = '';
+  $('.bulk-types').open = false;
+  editorCatalog = [...new Set(typeDraft.slice(0, typesEditorPeople))];
+  quickLabels = editorCatalog.filter(label => label !== '未分类').slice(0, 3);
+  for (const label of ['类型 A', '类型 B', '类型 C']) if (quickLabels.length < 3 && !quickLabels.includes(label)) quickLabels.push(label);
+  quickCategoryCount = 2;
   const rows = $('#type-rows'); rows.replaceChildren();
   for (let id = 1; id <= typesEditorPeople; id++) {
     const row = node('label', 'type-row');
     const person = node('span', 'type-row-person');
     person.append(node('small', '', String(id).padStart(2, '0')), node('span', '', nameOf(id)));
-    const input = node('input');
-    input.type = 'text'; input.value = typeDraft[id - 1] === '未分类' ? '' : typeDraft[id - 1]; input.placeholder = '未分类';
-    input.dataset.typeId = String(id); input.maxLength = 40; input.setAttribute('list', 'type-suggestions');
-    input.setAttribute('aria-label', `${id} 号同学 ${nameOf(id)} 的类型`);
-    input.addEventListener('change', updateTypeSuggestions);
-    row.append(person, input); rows.append(row);
+    const select = node('select'); select.dataset.typeId = String(id);
+    select.setAttribute('aria-label', `${id} 号同学 ${nameOf(id)} 的类型`);
+    select.addEventListener('change', () => { updateEditorSummary(); $('#type-editor-status').textContent = ''; });
+    row.append(person, select); rows.append(row);
   }
-  $('#types-bulk').value = typeDraft.slice(0, typesEditorPeople).join('\n');
   $('#types-bulk').maxLength = typesEditorPeople * 42;
-  updateTypeSuggestions(); typesDialog.showModal();
+  setEditorTypes(typeDraft.slice(0, typesEditorPeople));
+  renderQuickFields(); typesDialog.showModal();
 });
 $('#close-types').addEventListener('click', () => typesDialog.close());
+document.querySelectorAll('[data-quick-count]').forEach(button => button.addEventListener('click', () => {
+  quickCategoryCount = Number(button.dataset.quickCount); renderQuickFields();
+}));
+$('#balance-quick-types').addEventListener('click', renderQuickFields);
+$('#apply-quick-types').addEventListener('click', () => {
+  try {
+    const plan = readQuickPlan(); setEditorTypes(plan.types);
+    $('#type-editor-status').textContent = `已按编号填入 ${quickCategoryCount} 类，可继续逐人调整；点击「保存类型设置」后保留。`;
+  } catch (error) { $('#types-error').textContent = error.message; }
+});
+function addEditorLabel() {
+  try {
+    const value = $('#new-type-label').value.trim();
+    if (!value) throw new Error('请先填写新类型的名称。');
+    const [label] = normalizeTypeLabels([value]);
+    if (editorCatalog.includes(label)) throw new Error('这个类型已经在下拉选项中，可以直接选择。');
+    editorCatalog.push(label);
+    setEditorTypes(editorTypeFields().map(select => select.value));
+    $('#new-type-label').value = '';
+    $('#type-editor-status').textContent = `已添加“${label}”，可在下方任意同学的下拉菜单中选择。`;
+  } catch (error) { $('#types-error').textContent = error.message; }
+}
+$('#add-type-label').addEventListener('click', addEditorLabel);
+$('#new-type-label').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); addEditorLabel(); } });
+$('#quick-type-fields').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); if (!$('#apply-quick-types').disabled) $('#apply-quick-types').click(); } });
 $('#apply-type-bulk').addEventListener('click', () => {
   try {
     let lines = $('#types-bulk').value.replace(/\r\n?/g, '\n').split('\n');
     if (lines.length === typesEditorPeople + 1 && lines.at(-1) === '') lines.pop();
     if (lines.length !== typesEditorPeople) throw new Error(`请按编号填写恰好 ${typesEditorPeople} 行，当前为 ${lines.length} 行；空行也占一位。`);
-    const types = normalizeTypes(lines);
-    editorTypeFields().forEach((input, i) => { input.value = types[i] === '未分类' ? '' : types[i]; });
-    updateTypeSuggestions(); $('#types-error').textContent = '';
+    setEditorTypes(normalizeTypeLabels(lines));
+    $('#type-editor-status').textContent = '已填入列表，可继续逐人调整；保存后保留。';
   } catch (error) { $('#types-error').textContent = error.message; }
 });
 $('#types-form').addEventListener('submit', event => {
   event.preventDefault();
   try {
-    const types = normalizeTypes(editorTypeFields().map(input => input.value));
+    const types = normalizeTypeLabels(editorTypeFields().map(input => input.value));
     typeDraft = [...types, ...typeDraft.slice(typesEditorPeople)];
     typesDialog.close(); renderTypeSettings(); $('#config-error').textContent = '';
     save('类型设置已保存。重新求解后应用到分组。');
