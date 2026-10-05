@@ -1,8 +1,8 @@
 import {
   LIMITS, validateConfig, validateSchedule, analyzeSchedule, evaluateProof,
   compareMetrics, parseNames, defaultNames, getSizeOptions, getAutomaticGroupCounts,
-} from './grouping.js?v=types-quick-1';
-import { quickTypeSizes, createQuickTypePlan, normalizeTypeLabels } from './type-editor.js?v=types-quick-1';
+} from './grouping.js?v=layout-1';
+import { quickTypeSizes, createQuickTypePlan, normalizeTypeLabels } from './type-editor.js?v=layout-1';
 
 const $ = selector => document.querySelector(selector);
 const objectives = ['fair', 'coverage'];
@@ -136,20 +136,78 @@ function sizeSettingDescription(config) {
   if (config.preferredSize == null) return '每组人数不限';
   return `期望每组 ${config.preferredSize} 人${config.groupCounts.some(count => count !== null) ? '（手动组数优先）' : ''}`;
 }
+function renderSizePolicy(people, target, options = null) {
+  snapshotDraft();
+  const rounds = Number($('#rounds-input').value);
+  const validRounds = Number.isInteger(rounds) && rounds >= 1 && rounds <= LIMITS.maxRounds;
+  const validTarget = target === null || Number.isInteger(target) && target >= 2 && target <= LIMITS.maxPeople;
+  const fields = [...document.querySelectorAll('[data-round-input]')];
+  const manual = [], invalid = [];
+  fields.forEach((input, index) => {
+    const filled = input.value.trim() !== '';
+    const count = Number(input.value);
+    const inRange = Number.isInteger(count) && count >= 3 && count <= Math.floor(people / 2);
+    const feasible = inRange && (!options || options.some(option => option.groupCount === count));
+    const policy = filled ? feasible && validPeople(people) ? 'manual' : 'invalid' : 'auto';
+    if (filled && index < rounds) manual.push(index + 1);
+    if (policy === 'invalid' && index < rounds) invalid.push(index + 1);
+    input.parentElement.dataset.policy = policy;
+    input.setAttribute('aria-invalid', String(policy === 'invalid'));
+    $(`#round-policy-${index}`).textContent = policy === 'manual' ? `${count} 组优先 · 不采用期望人数`
+      : policy === 'invalid' ? !validPeople(people) ? '请先填写有效总人数' : inRange ? '组数与类型规则不兼容' : `请填 3–${Math.floor(people / 2)} 的整数`
+      : !validTarget ? '自动 · 请修正期望人数' : target === null ? '自动选择组数 · 人数不限' : `按期望 ${target} 人 / 组`;
+  });
+  const autoCount = validRounds ? rounds - manual.length : 0;
+  const allManual = validRounds && manual.length === rounds && !invalid.length;
+  const status = $('#size-policy-status');
+  status.dataset.policy = !validPeople(people) || !validRounds || !validTarget || invalid.length ? 'invalid' : allManual ? 'manual' : manual.length ? 'mixed' : 'auto';
+  status.textContent = !validPeople(people) ? '请先填写有效总人数' : !validRounds ? '请先填写有效作业次数'
+    : !validTarget ? '期望人数需调整' : invalid.length ? `作业 ${invalid.join('、')} 的组数需调整`
+    : allManual ? '全部已指定组数 · 期望人数不生效'
+    : manual.length ? `混用 · ${manual.length} 次指定组数 / ${autoCount} 次自动`
+    : target === null ? `全部 ${rounds} 次自动 · 人数不限` : `全部 ${rounds} 次按期望人数`;
+  $('#round-policy-summary').textContent = !validRounds ? '请先填写有效作业次数' : invalid.length ? `${invalid.length} 次输入待调整`
+    : manual.length ? `${manual.length} 次已指定 · 优先于期望人数` : '可选 · 仅覆盖对应作业';
+  $('#size-override-notice').hidden = !manual.length;
+  $('#size-override').textContent = !validRounds ? `请先将作业次数设为 1–${LIMITS.maxRounds} 的整数，再确认各次安排；已填写的组数暂时保留。`
+    : !validPeople(people) ? '请先填写有效总人数，再确认各次组数；已填写的组数暂时保留。'
+    : !validTarget ? '请将期望人数设为 2–300 的整数，或清空为不限；已填写的组数保持。'
+    : invalid.length ? `作业 ${invalid.join('、')} 的组数需修正后才能求解。可清空对应输入，恢复按期望人数安排。`
+    : allManual ? '期望人数与推荐暂不影响当前安排。清空某次组数，仅让该次恢复自动；也可将全部作业改为自动。'
+    : `作业 ${manual.join('、')} 优先采用指定组数；其余 ${autoCount} 次${target === null ? '自动选择组数' : '按期望人数安排'}。点击推荐不会覆盖已指定的组数。`;
+  $('#auto-all-rounds').hidden = !manual.length;
+  $('#auto-all-rounds').disabled = Boolean(activeJob);
+  return { manual, allManual, invalid, autoCount };
+}
 function renderSizeSettings() {
   const container = $('#size-options'); container.replaceChildren();
   const preview = $('#size-preview');
-  const override = $('#size-override'); override.textContent = '';
-  $('#auto-all-rounds').hidden = true;
   const people = draftPeople();
   const target = preferredSize();
+  renderSizePolicy(people, target);
   $('#clear-size').disabled = Boolean(activeJob) || target === null;
   if (!validPeople(people)) { preview.textContent = '填写 6–300 人后，会自动推荐均匀分组。'; return; }
   ensureTypes(people);
   const base = { people, rounds: 1, typeMode: typeMode(), types: typeDraft.slice(0, people), preferredSize: target };
   let options;
   try { options = getSizeOptions(base); }
-  catch (error) { preview.textContent = error.message; return; }
+  catch (error) {
+    preview.textContent = error.message;
+    $('#size-policy-status').textContent = '当前设置需要调整';
+    $('#size-policy-status').dataset.policy = 'invalid';
+    if (target === null || Number.isInteger(target) && target >= 2 && target <= LIMITS.maxPeople) {
+      $('#round-policy-summary').textContent = '请先调整类型规则';
+      document.querySelectorAll('[data-round-input]').forEach((input, index) => {
+        input.parentElement.dataset.policy = 'pending';
+        input.removeAttribute('aria-invalid');
+        $(`#round-policy-${index}`).textContent = '类型规则待调整 · 暂无可行安排';
+      });
+      $('#size-override-notice').hidden = false;
+      $('#size-override').textContent = '当前类型规则下没有可行分组，请先调整类型设置；改为自动也需要满足类型规则。';
+    }
+    return;
+  }
+  const { allManual, invalid, autoCount } = renderSizePolicy(people, target, options);
   const candidates = new Map();
   // 按真实候选组数去重；点击只改变期望值，保留逐次手动组数。
   for (const value of [...new Set([target, 4, 3, 5, 6, 2].filter(value => value !== null))]) {
@@ -172,13 +230,9 @@ function renderSizeSettings() {
     });
     container.append(button);
   });
-  const rounds = Number($('#rounds-input').value);
-  snapshotDraft();
-  const counts = roundDraft.slice(0, Number.isInteger(rounds) && rounds >= 1 && rounds <= LIMITS.maxRounds ? rounds : 0);
-  const manual = counts.map((count, index) => count === null || count === undefined ? null : index + 1).filter(Boolean);
-  const autoCount = Math.max(0, rounds - manual.length);
-  const allManual = Number.isInteger(rounds) && rounds >= 1 && rounds <= LIMITS.maxRounds && autoCount === 0;
-  if (allManual) {
+  if (invalid.length && autoCount === 0) {
+    preview.textContent = '各次作业均已填写组数，请先修正标记的输入；期望人数只用于组数留空的作业。';
+  } else if (allManual) {
     preview.textContent = '所有作业都已指定组数，当前期望人数不会改变分组规模；将某次组数留空后才会应用。';
   } else if (target === null) {
     preview.textContent = '当前不限制每组人数，自动作业会搜索所有合法组数。点击推荐或填写期望人数，可以控制小组规模。';
@@ -187,11 +241,7 @@ function renderSizeSettings() {
     const chosen = options.filter(option => allowed.includes(option.groupCount));
     preview.textContent = `自动作业最接近 ${target} 人 / 组的安排：${chosen.map(option => `${option.groupCount} 组（${sizeDescription(option.sizes)}）`).join(' 或 ')}。${chosen.length > 1 ? '同样接近，可在这些安排中优化新队友。' : '先满足这个规模，再优化新队友。'}${chosen.some(option => option.distance > 1) ? '受当前人数、至少 3 组和类型规则限制，实际人数与期望有差距。' : ''}`;
   }
-  if (manual.length) {
-    override.textContent = `作业 ${manual.join('、')} 使用各自填写的组数，优先于上方期望；推荐按钮不会覆盖这些设置。`;
-    $('#auto-all-rounds').hidden = false;
-    $('#auto-all-rounds').disabled = Boolean(activeJob);
-  }
+
 }
 function renderTypeSettings() {
   renderSizeSettings();
@@ -234,7 +284,9 @@ function renderRoundInputs() {
     input.type = 'number'; input.min = '3'; input.max = String(maximum); input.step = '1';
     input.placeholder = '自动'; input.dataset.roundInput = String(i); input.setAttribute('aria-label', `作业 ${i + 1} 的组数，留空自动`);
     input.value = roundDraft[i] ?? '';
-    label.append(input); container.append(label);
+    const hint = node('small'); hint.id = `round-policy-${i}`;
+    input.setAttribute('aria-describedby', hint.id);
+    label.append(input, hint); container.append(label);
   }
   $('#group-range').textContent = Number.isInteger(people) && people >= LIMITS.minPeople && people <= LIMITS.maxPeople
     ? `当前每次可以分为 3–${maximum} 组；没有额外组数上限。` : '每次至少 3 组、每组至少 2 人，总人数至少为 6。';
@@ -283,9 +335,9 @@ function renderComparison() {
     numbers.replaceChildren();
     if (result) {
       const minimum = node('span');
-      minimum.append(node('strong', '', String(result.metrics.minimumTeammates)), node('small', '', '每人至少认识 / 位'));
+      minimum.append(node('small', '', '每人至少'), node('strong', '', String(result.metrics.minimumTeammates)), node('small', '', '位'));
       const pairs = node('span');
-      pairs.append(node('strong', '', String(result.metrics.uniquePairs)), node('small', '', '不同搭档 / 对'));
+      pairs.append(node('small', '', '不同搭档'), node('strong', '', String(result.metrics.uniquePairs)), node('small', '', '对'));
       numbers.append(minimum, pairs);
       $(`#${goal}-quality`).textContent = resultQuality(result);
     } else {
@@ -458,7 +510,7 @@ function startSolve() {
   $('#progress-text').textContent = `正在为 ${config.people} 人、${config.rounds} 次作业比较两种目标；下方保留上次结果。`;
   for (const goal of objectives) {
     try {
-      const worker = new Worker(new URL('./solver-worker.js?v=types-quick-1', import.meta.url), { type:'module' });
+      const worker = new Worker(new URL('./solver-worker.js?v=layout-1', import.meta.url), { type:'module' });
       job.workers.push(worker);
       worker.onmessage = ({ data }) => {
         if (activeJob !== job || data.requestId !== `${job.id}-${goal}` || job.finished.has(goal)) return;
