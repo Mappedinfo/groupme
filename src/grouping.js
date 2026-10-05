@@ -13,6 +13,48 @@ export function balancedSizes(n, k) {
   return Array.from({ length: k }, (_, i) => small + Number(i < n % k));
 }
 
+function typeContext(config) {
+  const labels = [];
+  const members = [];
+  const labelIds = new Map();
+  const ids = config.types.map((label, person) => {
+    if (!labelIds.has(label)) {
+      labelIds.set(label, labels.length);
+      labels.push(label);
+      members.push([]);
+    }
+    const id = labelIds.get(label);
+    members[id].push(person);
+    return id;
+  });
+  return { mode: config.typeMode, labels, members, ids, counts: members.map((list) => list.length) };
+}
+
+const feasibilityCache = new Map();
+function allowedCounts(n, mode, counts) {
+  if (mode !== 'within') return Array.from({ length: Math.floor(n / 2) - 2 }, (_, i) => i + 3);
+  const key = `${n}:${[...counts].sort((a, b) => a - b).join(',')}`;
+  if (feasibilityCache.has(key)) return [...feasibilityCache.get(key)];
+  const allowed = [];
+  for (let k = 3; k <= Math.floor(n / 2); k += 1) {
+    const small = Math.floor(n / k);
+    let least = 0;
+    let most = 0;
+    let possible = true;
+    for (const count of counts) {
+      const lower = Math.ceil(count / (small + 1));
+      const upper = Math.floor(count / small);
+      if (lower > upper) { possible = false; break; }
+      least += lower;
+      most += upper;
+    }
+    if (possible && least <= k && k <= most) allowed.push(k);
+  }
+  if (feasibilityCache.size >= 128) feasibilityCache.delete(feasibilityCache.keys().next().value);
+  feasibilityCache.set(key, [...allowed]);
+  return allowed;
+}
+
 export function validateConfig(config) {
   if (!config || typeof config !== 'object') throw new Error('请提供有效的分组设置。');
   const people = integer(config.people, LIMITS.minPeople, LIMITS.maxPeople, '总人数');
@@ -24,7 +66,33 @@ export function validateConfig(config) {
   if (!['fair', 'coverage'].includes(objective)) throw new Error('请选择公平优先或覆盖优先。');
   const seed = config.seed ?? 1;
   integer(seed, 0, 0xffffffff, '随机种子');
-  return { people, rounds, groupCounts, objective, seed: seed >>> 0 };
+  const typeMode = config.typeMode ?? 'off';
+  if (!['off', 'mix', 'within'].includes(typeMode)) throw new Error('请选择不限制类型、均匀混合或同类组队。');
+  const rawTypes = config.types ?? Array(people).fill('未分类');
+  if (!Array.isArray(rawTypes) || rawTypes.length !== people) throw new Error(`请提供恰好 ${people} 位同学的类型。`);
+  const types = Array.from(rawTypes, (value, index) => {
+    if (typeof value !== 'string') throw new Error(`第 ${index + 1} 位同学的类型须为文字。`);
+    const label = value.trim() || '未分类';
+    if (Array.from(label).length > 20) throw new Error(`第 ${index + 1} 位同学的类型不能超过 20 个字符。`);
+    return label;
+  });
+  const normalized = { people, rounds, groupCounts, objective, seed: seed >>> 0, typeMode, types };
+  if (typeMode === 'within') {
+    const context = typeContext(normalized);
+    const singleton = context.counts.indexOf(1);
+    if (singleton !== -1) throw new Error(`类型「${context.labels[singleton]}」只有 1 人，无法同类组队且每组至少 2 人。`);
+    const allowed = allowedCounts(people, typeMode, context.counts);
+    if (!allowed.length) throw new Error('这些类型人数无法同时满足同类组队、至少 3 组、每组至少 2 人和全轮人数相差不超过 1 人；请调整类型或组队方式。');
+    groupCounts.forEach((k, round) => {
+      if (k !== null && !allowed.includes(k)) throw new Error(`作业 ${round + 1} 的 ${k} 组不满足同类组队与均匀人数要求；可行组数为 ${allowed.join('、')}。`);
+    });
+  }
+  return normalized;
+}
+
+export function feasibleGroupCounts(config) {
+  const normalized = validateConfig(config);
+  return allowedCounts(normalized.people, normalized.typeMode, typeContext(normalized).counts);
 }
 
 export function validateSchedule(assignments, n, config) {
@@ -49,14 +117,26 @@ export function validateSchedule(assignments, n, config) {
       }
     }
     if (seen.size !== n) throw new Error(`作业 ${r + 1} 必须包含全部 ${n} 位同学。`);
+    if (normalized?.typeMode === 'within') {
+      for (const group of round) {
+        if (group.some((id) => normalized.types[id - 1] !== normalized.types[group[0] - 1])) throw new Error(`作业 ${r + 1} 违反同类组队要求。`);
+      }
+    } else if (normalized?.typeMode === 'mix') {
+      for (const label of new Set(normalized.types)) {
+        const amounts = round.map((group) => group.reduce((sum, id) => sum + Number(normalized.types[id - 1] === label), 0));
+        if (Math.max(...amounts) - Math.min(...amounts) > 1) throw new Error(`作业 ${r + 1} 的类型「${label}」未均匀分散到各组。`);
+      }
+    }
   }
   return true;
 }
 
-export function analyzeSchedule(assignments, n) {
-  validateSchedule(assignments, n);
+export function analyzeSchedule(assignments, n, config) {
+  const normalized = config ? validateConfig(config) : validateConfig({ people: n, rounds: assignments?.length });
+  validateSchedule(assignments, n, normalized);
+  const context = typeContext(normalized);
   const counts = new Uint16Array(n * n);
-  const people = Array.from({ length: n }, (_, i) => ({ id: i + 1, teammates: [], uniqueCount: 0, rounds: [] }));
+  const people = Array.from({ length: n }, (_, i) => ({ id: i + 1, type: normalized.types[i], eligibleTeammates: normalized.typeMode === 'within' ? context.counts[context.ids[i]] - 1 : n - 1, teammates: [], uniqueCount: 0, rounds: [] }));
   const sets = Array.from({ length: n }, () => new Set());
   let uniquePairs = 0;
   let repeatedPairs = 0;
@@ -94,9 +174,12 @@ export function analyzeSchedule(assignments, n) {
     frequencies.set(person.uniqueCount, (frequencies.get(person.uniqueCount) ?? 0) + 1);
   });
   const possiblePairs = n * (n - 1) / 2;
+  const eligiblePairs = normalized.typeMode === 'within' ? context.counts.reduce((sum, count) => sum + count * (count - 1) / 2, 0) : possiblePairs;
   const averageTeammates = uniquePairs * 2 / n;
   return {
     uniquePairs, possiblePairs, repeatMeetings, repeatedPairs, coverage: uniquePairs / possiblePairs,
+    eligiblePairs, eligibleCoverage: uniquePairs / eligiblePairs, typeMode: normalized.typeMode,
+    types: context.labels.map((label, i) => ({ label, people: context.counts[i] })),
     minimumTeammates: Math.min(...people.map((person) => person.uniqueCount)),
     maximumTeammates: Math.max(...people.map((person) => person.uniqueCount)),
     averageTeammates, sumSquaredTeammates,
@@ -106,9 +189,9 @@ export function analyzeSchedule(assignments, n) {
   };
 }
 
-export function getPersonSummary(assignments, n, id) {
+export function getPersonSummary(assignments, n, id, config) {
   integer(id, 1, n, '成员编号');
-  return analyzeSchedule(assignments, n).people[id - 1];
+  return analyzeSchedule(assignments, n, config).people[id - 1];
 }
 
 export function defaultNames(n) {
@@ -165,10 +248,13 @@ function pairMeetingsFor(n, k) {
 
 function boundsFor(config) {
   const n = config.people;
-  const maxPairs = config.groupCounts.reduce((sum, k) => sum + pairMeetingsFor(n, k ?? 3), 0);
-  const possiblePairs = n * (n - 1) / 2;
-  let minUpper = Math.min(n - 1, Math.floor(2 * maxPairs / n));
-  if (config.rounds === 1) minUpper = Math.floor(n / (config.groupCounts[0] ?? 3)) - 1;
+  const context = typeContext(config);
+  const smallestK = allowedCounts(n, config.typeMode, context.counts)[0];
+  const maxPairs = config.groupCounts.reduce((sum, k) => sum + pairMeetingsFor(n, k ?? smallestK), 0);
+  const possiblePairs = config.typeMode === 'within' ? context.counts.reduce((sum, count) => sum + count * (count - 1) / 2, 0) : n * (n - 1) / 2;
+  const personalCap = config.typeMode === 'within' ? Math.min(...context.counts) - 1 : n - 1;
+  let minUpper = Math.min(personalCap, Math.floor(2 * maxPairs / n));
+  if (config.rounds === 1) minUpper = Math.min(personalCap, Math.floor(n / (config.groupCounts[0] ?? smallestK)) - 1);
   return { uniquePairsUpperBound: Math.min(possiblePairs, maxPairs), minTeammatesUpperBound: minUpper };
 }
 
@@ -178,14 +264,17 @@ function proofFor(config, metrics) {
   const low = Math.floor(total / config.people);
   const highCount = total % config.people;
   const minimumSquares = (config.people - highCount) * low ** 2 + highCount * (low + 1) ** 2;
-  const optimal = metrics.uniquePairs === bounds.uniquePairsUpperBound
+  const fullyWithin = config.typeMode === 'within' && metrics.uniquePairs === metrics.eligiblePairs;
+  const optimal = fullyWithin || (metrics.uniquePairs === bounds.uniquePairsUpperBound
     && metrics.minimumTeammates === bounds.minTeammatesUpperBound
-    && metrics.sumSquaredTeammates === minimumSquares;
+    && metrics.sumSquaredTeammates === minimumSquares);
   return {
     optimal,
     label: optimal ? '已证明覆盖目标最优' : '预算内找到的最佳方案',
     reason: optimal
-      ? (metrics.uniquePairs === metrics.possiblePairs
+      ? (fullyWithin
+        ? '每个人都已与同类型的其余全部同学合作；同类组队限制下的个人最小覆盖、总覆盖与覆盖公平度均已最优。此证明不包含重复碰面次数最少。'
+        : metrics.uniquePairs === metrics.possiblePairs
         ? '每个人都已与其余全部同学合作；个人最小覆盖、总覆盖与覆盖公平度都达到理论最优。此证明不包含重复碰面次数最少。'
         : '个人最小覆盖和不同搭档总数都达到组数约束下的有效上界，覆盖离散程度也达到整数理论下界。此证明不包含重复碰面次数最少。')
       : '当前方案满足全部分组约束，但尚未取得全局最优证明；更长搜索或不同种子可能找到更好的方案。',
@@ -196,11 +285,11 @@ function proofFor(config, metrics) {
 export function evaluateProof(assignments, config) {
   const normalized = validateConfig(config);
   validateSchedule(assignments, normalized.people, normalized);
-  return proofFor(normalized, analyzeSchedule(assignments, normalized.people));
+  return proofFor(normalized, analyzeSchedule(assignments, normalized.people, normalized));
 }
 
-function createState(n) {
-  return { n, counts: new Uint16Array(n * n), degrees: new Int16Array(n), uniquePairs: 0, meetings: 0, squares: 0, minimum: 0 };
+function createState(n, context) {
+  return { n, context, counts: new Uint16Array(n * n), degrees: new Int16Array(n), uniquePairs: 0, meetings: 0, squares: 0, minimum: 0 };
 }
 
 function changePair(state, a, b, direction) {
@@ -233,8 +322,47 @@ function stateMetrics(state) {
 
 function cloneSchedule(schedule) { return schedule.map((round) => round.map((group) => [...group])); }
 
+function typeSlots(state, k, random) {
+  const { context } = state;
+  const slots = Array.from({ length: k }, () => new Uint16Array(context.counts.length));
+  if (context.mode === 'mix') {
+    // 每类连续走过循环槽位：每类各组相差至多一人，全体也相差至多一人。
+    const groupOrder = shuffle(Array.from({ length: k }, (_, i) => i), random);
+    const typeOrder = shuffle(Array.from({ length: context.counts.length }, (_, i) => i), random);
+    let cursor = 0;
+    for (const type of typeOrder) {
+      for (let i = 0; i < context.counts[type]; i += 1) {
+        slots[groupOrder[cursor % k]][type] += 1;
+        cursor += 1;
+      }
+    }
+  } else {
+    // c=q*t+b：每类组数 t 可取一个连续整数区间，据此精确配出总共 k 组。
+    const small = Math.floor(state.n / k);
+    const groupCounts = context.counts.map((count) => Math.ceil(count / (small + 1)));
+    let remaining = k - groupCounts.reduce((sum, count) => sum + count, 0);
+    const order = shuffle(Array.from({ length: context.counts.length }, (_, i) => i), random);
+    for (const type of order) {
+      const extra = Math.min(remaining, Math.floor(context.counts[type] / small) - groupCounts[type]);
+      groupCounts[type] += extra;
+      remaining -= extra;
+    }
+    let group = 0;
+    for (const type of order) {
+      const larger = context.counts[type] - small * groupCounts[type];
+      for (let i = 0; i < groupCounts[type]; i += 1) {
+        slots[group][type] = small + Number(i < larger);
+        group += 1;
+      }
+    }
+    shuffle(slots, random);
+  }
+  return slots;
+}
+
 function makeRound(state, k, random, variation) {
-  const sizes = balancedSizes(state.n, k);
+  const slots = state.context.mode === 'off' ? null : typeSlots(state, k, random);
+  const sizes = slots ? slots.map((group) => group.reduce((sum, count) => sum + count, 0)) : balancedSizes(state.n, k);
   const groups = sizes.map(() => []);
   const order = shuffle(Array.from({ length: state.n }, (_, id) => id), random);
   if (variation % 3 !== 2) order.sort((a, b) => state.degrees[a] - state.degrees[b]);
@@ -243,7 +371,7 @@ function makeRound(state, k, random, variation) {
     let bestCost = Infinity;
     for (let g = 0; g < groups.length; g += 1) {
       const group = groups[g];
-      if (group.length >= sizes[g]) continue;
+      if (group.length >= sizes[g] || (slots && slots[g][state.context.ids[person]] === 0)) continue;
       let repeats = 0;
       let meetings = 0;
       for (const other of group) {
@@ -255,6 +383,7 @@ function makeRound(state, k, random, variation) {
       if (cost < bestCost) { best = g; bestCost = cost; }
     }
     groups[best].push(person);
+    if (slots) slots[best][state.context.ids[person]] -= 1;
   }
   return groups;
 }
@@ -277,6 +406,19 @@ function attemptSwap(state, round, random, objective, scratch) {
   const bIndex = Math.floor(random() * bGroup.length);
   const a = aGroup[aIndex];
   const b = bGroup[bIndex];
+  const { context } = state;
+  const aType = context.ids[a];
+  const bType = context.ids[b];
+  if (aType !== bType && context.mode === 'within') return false;
+  if (aType !== bType && context.mode === 'mix') {
+    const aLow = Math.floor(context.counts[aType] / round.length);
+    const aHigh = Math.ceil(context.counts[aType] / round.length);
+    const bLow = Math.floor(context.counts[bType] / round.length);
+    const bHigh = Math.ceil(context.counts[bType] / round.length);
+    const count = (group, type) => group.reduce((sum, person) => sum + Number(context.ids[person] === type), 0);
+    if (count(aGroup, aType) - 1 < aLow || count(bGroup, aType) + 1 > aHigh
+        || count(bGroup, bType) - 1 < bLow || count(aGroup, bType) + 1 > bHigh) return false;
+  }
   const deltas = scratch;
   deltas.fill(0);
   let deltaPairs = 0;
@@ -326,6 +468,10 @@ export function solveSchedule(rawConfig, options = {}) {
   const deadline = started + timeBudgetMs;
   const random = rngFrom(config.seed);
   const n = config.people;
+  const context = typeContext(config);
+  const allowedK = allowedCounts(n, config.typeMode, context.counts);
+  const smallestK = allowedK[0];
+  const eligiblePairs = config.typeMode === 'within' ? context.counts.reduce((sum, count) => sum + count * (count - 1) / 2, 0) : n * (n - 1) / 2;
   const scratch = new Int16Array(n);
   // 固定工作量限额便于复验；初始化计入搜索预算，到期后完成有界结果校验。
   const iterationLimit = maxIterations ?? Math.min(10000000, Math.max(300, Math.floor(timeBudgetMs * 240000 / (n + 30))));
@@ -338,6 +484,7 @@ export function solveSchedule(rawConfig, options = {}) {
   const fullPairs = n * (n - 1) / 2;
   const upperBounds = boundsFor(config);
   function proved(metrics) {
+    if (config.typeMode === 'within' && metrics.uniquePairs === eligiblePairs) return true;
     const total = metrics.uniquePairs * 2;
     const low = Math.floor(total / n);
     const extra = total % n;
@@ -363,12 +510,13 @@ export function solveSchedule(rawConfig, options = {}) {
     }
   }
   const automaticRounds = config.groupCounts.map((k, i) => k === null ? i : -1).filter((i) => i >= 0);
-  const allPairs = n % 2 === 0 && config.groupCounts.every((k) => k === n / 2);
+  const allPairs = n % 2 === 0 && config.groupCounts.every((k) => k === n / 2)
+    && (config.typeMode === 'off' || context.counts.length === 1);
   let schedule = [];
-  let state = createState(n);
+  let state = createState(n, context);
   const initialPermutation = shuffle(Array.from({ length: n }, (_, id) => id), random);
   for (let r = 0; r < config.rounds; r += 1) {
-    const round = allPairs ? pairRoundRobin(n, r, initialPermutation) : makeRound(state, config.groupCounts[r] ?? 3, random, 0);
+    const round = allPairs ? pairRoundRobin(n, r, initialPermutation) : makeRound(state, config.groupCounts[r] ?? smallestK, random, 0);
     schedule.push(round);
     changeRound(state, round, 1);
   }
@@ -399,10 +547,10 @@ export function solveSchedule(rawConfig, options = {}) {
       const before = stateMetrics(state);
       let k = config.groupCounts[r];
       if (k === null) {
-        const maximum = Math.floor(n / 2);
+        const position = allowedK.indexOf(original.length);
         k = work % 4 < 2
-          ? Math.max(3, Math.min(maximum, original.length + (random() < 0.5 ? -1 : 1)))
-          : 3 + Math.floor(random() * (maximum - 2));
+          ? allowedK[Math.max(0, Math.min(allowedK.length - 1, position + (random() < 0.5 ? -1 : 1)))]
+          : allowedK[Math.floor(random() * allowedK.length)];
       }
       changeRound(state, original, -1);
       const replacement = makeRound(state, k, random, start + work + 1);
@@ -419,7 +567,7 @@ export function solveSchedule(rawConfig, options = {}) {
       if (stagnation >= 2 && !expired()) {
         // 新起点与历史最好方案交替，越过局部最优。
         start += 1;
-        state = createState(n);
+        state = createState(n, context);
         if (start % 2 === 0) {
           schedule = cloneSchedule(bestSchedule);
           schedule.forEach((round) => changeRound(state, round, 1));
@@ -431,7 +579,7 @@ export function solveSchedule(rawConfig, options = {}) {
           schedule = [];
           for (let roundIndex = 0; roundIndex < config.rounds; roundIndex += 1) {
             const specified = config.groupCounts[roundIndex];
-            const k2 = specified ?? (random() < 0.7 ? 3 : 3 + Math.floor(random() * Math.min(4, Math.floor(n / 2) - 2)));
+            const k2 = specified ?? (random() < 0.7 ? smallestK : allowedK[Math.floor(random() * Math.min(4, allowedK.length))]);
             const round = makeRound(state, k2, random, start);
             schedule.push(round);
             changeRound(state, round, 1);
@@ -443,7 +591,7 @@ export function solveSchedule(rawConfig, options = {}) {
     }
   }
   const assignments = bestSchedule.map((round) => round.map((group) => group.map((id) => id + 1).sort((a, b) => a - b)));
-  const metrics = analyzeSchedule(assignments, n);
+  const metrics = analyzeSchedule(assignments, n, config);
   if (metrics.uniquePairs !== bestMetrics.uniquePairs
       || metrics.minimumTeammates !== bestMetrics.minimumTeammates
       || metrics.sumSquaredTeammates !== bestMetrics.sumSquaredTeammates

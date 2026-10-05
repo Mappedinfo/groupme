@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   LIMITS, balancedSizes, validateConfig, validateSchedule, solveSchedule,
   analyzeSchedule, compareMetrics, getPersonSummary, defaultNames, parseNames, evaluateProof,
+  feasibleGroupCounts,
 } from '../src/grouping.js';
 
 const ids = (n) => Array.from({ length: n }, (_, index) => index + 1);
@@ -392,6 +393,14 @@ test('Worker 实际消息处理保留请求编号，返回可验证分组和可�
     assertSchedule(result.result, config);
     assert.ok(messages.every((message) => message.requestId === 'case-good'));
     messages.length = 0;
+    const typed = { ...configFor(8, [null, null]), typeMode: 'within', types: labelsFromSizes([4, 4]) };
+    handler({ data: { type: 'solve', requestId: 'case-types', config: typed, timeBudgetMs: 100 } });
+    const typedResult = messages.find((message) => message.type === 'result');
+    assert.ok(typedResult);
+    assert.equal(typedResult.requestId, 'case-types');
+    assertSchedule(typedResult.result, typed);
+    assert.ok(typedResult.result.assignments.every((round) => followsTypes(round, typed.types, 'within')));
+    messages.length = 0;
     handler({ data: { type: 'solve', requestId: 0, config: { ...config, people: 5 } } });
     assert.equal(messages.length, 1);
     assert.equal(messages[0].type, 'error');
@@ -404,4 +413,183 @@ test('Worker 实际消息处理保留请求编号，返回可验证分组和可�
     if (previousSelf === undefined) delete globalThis.self;
     else globalThis.self = previousSelf;
   }
+});
+
+const labelsFromSizes = (sizes) => sizes.flatMap((size, index) => Array(size).fill(`类型${index + 1}`));
+
+function followsTypes(round, types, mode) {
+  if (mode === 'off') return true;
+  if (mode === 'within') return round.every((group) => new Set(group.map((id) => types[id - 1])).size === 1);
+  return [...new Set(types)].every((type) => {
+    const counts = round.map((group) => group.filter((id) => types[id - 1] === type).length);
+    return Math.max(...counts) - Math.min(...counts) <= 1;
+  });
+}
+
+// Unlike the untyped reference, retain every first partition: relabeling students
+// across types is not a symmetry. Only independently enumerated legal partitions
+// are combined, avoiding the implementation's type-allocation formulas.
+function exhaustiveTypedBest(config) {
+  const n = config.people;
+  assert.ok(n <= 9);
+  const choices = config.groupCounts.map((specified) => {
+    const counts = specified === null ? Array.from({ length: Math.floor(n / 2) - 2 }, (_, i) => i + 3) : [specified];
+    return counts.flatMap((k) => partitions(n, k)).filter(({ round }) => followsTypes(round, config.types, config.typeMode));
+  });
+  if (choices.some((round) => round.length === 0)) return null;
+  const popcounts = Array.from({ length: 1 << n }, (_, mask) => {
+    let count = 0;
+    for (let value = mask; value; value &= value - 1) count += 1;
+    return count;
+  });
+  let best = null;
+  function visit(index, masks) {
+    if (index === choices.length) {
+      const degrees = masks.map((mask) => popcounts[mask]);
+      const metrics = {
+        minimumTeammates: Math.min(...degrees),
+        uniquePairs: degrees.reduce((sum, value) => sum + value, 0) / 2,
+        sumSquaredTeammates: degrees.reduce((sum, value) => sum + value ** 2, 0),
+      };
+      const candidate = score(metrics, config.objective);
+      if (!best || compareVectors(candidate, best) > 0) best = candidate;
+      return;
+    }
+    for (const candidate of choices[index]) visit(index + 1, masks.map((mask, person) => mask | candidate.masks[person]));
+  }
+  visit(0, Array(n).fill(0));
+  return best;
+}
+
+test('类型配置默认关闭，空白归入未分类，类型数与字符串长度有界', () => {
+  const base = configFor(6, [3]);
+  assert.equal(validateConfig(base).typeMode, 'off');
+  const normalized = validateConfig({ ...base, typeMode: 'mix', types: [' A ', '', '  ', 'B', 'B', '😀'.repeat(20)] });
+  assert.equal(normalized.types[0], 'A');
+  assert.equal(normalized.types[1], '未分类');
+  assert.equal(normalized.types[2], '未分类');
+  assert.equal(normalized.types[5], '😀'.repeat(20));
+  for (const typeMode of ['similar', '', 1]) assert.throws(() => validateConfig({ ...base, typeMode }), Error);
+  for (const types of [[], Array(5).fill('A'), Array(7).fill('A'), [1, 'A', 'A', 'A', 'A', 'A'], 'AAAAAA']) {
+    assert.throws(() => validateConfig({ ...base, typeMode: 'mix', types }), Error);
+  }
+  assert.throws(() => validateConfig({ ...base, types: ['😀'.repeat(21), 'A', 'A', 'A', 'A', 'A'] }), Error);
+});
+
+test('类型内可行组数与小规模全部分区独立枚举一致', () => {
+  for (const sizes of [[6], [3, 3], [2, 4], [3, 4], [2, 2, 3], [4, 4], [2, 3, 3], [4, 5], [3, 3, 3], [2, 3, 4]]) {
+    const n = sizes.reduce((sum, count) => sum + count, 0);
+    const types = labelsFromSizes(sizes);
+    const expected = [];
+    for (let k = 3; k <= Math.floor(n / 2); k += 1) {
+      const feasible = partitions(n, k).some(({ round }) => followsTypes(round, types, 'within'));
+      const config = { ...configFor(n, [k]), typeMode: 'within', types };
+      if (feasible) {
+        expected.push(k);
+        assert.doesNotThrow(() => validateConfig(config));
+        const result = solveSchedule(config, searchOptions);
+        assertSchedule(result, config);
+        assert.ok(result.assignments.every((round) => followsTypes(round, types, 'within')));
+      } else assert.throws(() => validateConfig(config), Error, `${sizes.join('+')} 人不能分成 ${k} 组`);
+    }
+    const automatic = { ...configFor(n, [null]), typeMode: 'within', types };
+    if (expected.length) assert.deepEqual(feasibleGroupCounts(automatic), expected);
+    else assert.throws(() => validateConfig(automatic), Error);
+  }
+});
+
+test('类型内关键可行性：4+4 自动选四组，6+8 可四组但不能三组', () => {
+  const equal = { ...configFor(8, [null, null]), typeMode: 'within', types: labelsFromSizes([4, 4]) };
+  assert.deepEqual(feasibleGroupCounts(equal), [4]);
+  const result = solveSchedule(equal, searchOptions);
+  assertSchedule(result, equal);
+  assert.deepEqual(result.assignments.map((round) => round.length), [4, 4]);
+  const uneven = { ...configFor(14, [4, 7]), typeMode: 'within', types: labelsFromSizes([6, 8]) };
+  const legal = solveSchedule(uneven, searchOptions);
+  assertSchedule(legal, uneven);
+  assert.ok(legal.assignments.every((round) => followsTypes(round, uneven.types, 'within')));
+  assert.deepEqual(legal.assignments[0].map((group) => group.length).sort((a, b) => a - b), [3, 3, 4, 4]);
+  assert.throws(() => validateConfig({ ...uneven, rounds: 1, groupCounts: [3] }), Error);
+  assert.throws(() => validateConfig({ ...configFor(6, [null]), typeMode: 'within', types: labelsFromSizes([1, 5]) }), Error);
+});
+
+for (const [sizes, groupCounts, typeMode] of [
+  [[3, 3], [3, 3, 3], 'mix'],
+  [[3, 4], [3, 3], 'mix'],
+  [[6, 1, 1], [3, 3], 'mix'],
+  [[4, 4], [4, 4], 'mix'],
+  [[2, 3, 3], [3], 'within'],
+  [[3, 4], [3, 3, 3], 'within'],
+  [[4, 4], [null, null, null], 'within'],
+  [[4, 5], [4, 4], 'within'],
+]) {
+  for (const objective of ['fair', 'coverage']) {
+    test(`类型 ${sizes.join('+')} / ${typeMode} / ${objective}：与独立全部可行组合最优解一致`, () => {
+      const n = sizes.reduce((sum, value) => sum + value, 0);
+      const config = { ...configFor(n, groupCounts, objective), typeMode, types: labelsFromSizes(sizes) };
+      const result = solveSchedule(config, searchOptions);
+      assertSchedule(result, config);
+      assert.ok(result.assignments.every((round) => followsTypes(round, config.types, typeMode)));
+      assert.deepEqual(score(result.metrics, objective), exhaustiveTypedBest(config));
+    });
+  }
+}
+
+test('均匀分散对每种类型逐组检查，不只检查类型总数或人数平衡', () => {
+  for (const seed of [0, 1, 17, 20261005]) {
+    const config = {
+      ...configFor(31, [3, 6, 10, 15, null], seed % 2 ? 'fair' : 'coverage', seed),
+      typeMode: 'mix', types: labelsFromSizes([1, 2, 4, 7, 17]),
+    };
+    const result = solveSchedule(config, searchOptions);
+    assertSchedule(result, config);
+    assert.ok(result.assignments.every((round) => followsTypes(round, config.types, 'mix')));
+  }
+});
+
+test('分组验证拒绝不分散或跨类型合作，关闭策略时仍保持旧语义', () => {
+  const pairs = [[[1, 2], [3, 4], [5, 6]]];
+  const mix = { ...configFor(6, [3]), typeMode: 'mix', types: labelsFromSizes([3, 3]) };
+  assert.throws(() => validateSchedule(pairs, 6, mix), Error);
+  assert.equal(validateSchedule(pairs, 6, { ...mix, typeMode: 'off' }), true);
+  const within = { ...configFor(8, [4]), typeMode: 'within', types: labelsFromSizes([4, 4]) };
+  assert.throws(() => validateSchedule([[[1, 5], [2, 6], [3, 7], [4, 8]]], 8, within), Error);
+  assert.equal(validateSchedule([[[1, 2], [3, 4], [5, 6], [7, 8]]], 8, within), true);
+});
+
+test('类型内全部覆盖按各类型容量认证，不能要求不同类型人数的个人覆盖相等', () => {
+  const four = [[[3, 6], [4, 5]], [[3, 5], [6, 4]], [[3, 4], [5, 6]]];
+  const six = [
+    [[7, 12], [8, 11], [9, 10]], [[7, 11], [12, 10], [8, 9]],
+    [[7, 10], [11, 9], [12, 8]], [[7, 9], [10, 8], [11, 12]],
+    [[7, 8], [9, 12], [10, 11]],
+  ];
+  const assignments = six.map((groups, index) => [[1, 2], ...four[index % 3], ...groups]);
+  const config = { ...configFor(12, Array(5).fill(6)), typeMode: 'within', types: labelsFromSizes([2, 4, 6]) };
+  assert.equal(validateSchedule(assignments, 12, config), true);
+  const independent = inspect(assignments, 12);
+  assert.equal(independent.uniquePairs, 22);
+  assert.equal(independent.minimumTeammates, 1);
+  assert.equal(independent.sumSquaredTeammates, 188);
+  const metrics = analyzeSchedule(assignments, 12, config);
+  assert.equal(metrics.eligiblePairs, 22);
+  assert.equal(metrics.eligibleCoverage, 1);
+  assert.equal(metrics.coverage, 22 / 66);
+  assert.deepEqual(metrics.people.map((person) => person.eligibleTeammates), [1, 1, 3, 3, 3, 3, 5, 5, 5, 5, 5, 5]);
+  const proof = evaluateProof(assignments, config);
+  assert.equal(proof.optimal, true);
+  assert.equal(proof.uniquePairsUpperBound, 22);
+  assert.equal(proof.minTeammatesUpperBound, 1);
+});
+
+test('类型约束保留固定种子复现与输入不可变', () => {
+  const config = { ...configFor(14, [4, 7, null], 'fair', 445), typeMode: 'within', types: labelsFromSizes([6, 8]) };
+  Object.freeze(config.groupCounts);
+  Object.freeze(config.types);
+  Object.freeze(config);
+  const first = solveSchedule(config, searchOptions);
+  const second = solveSchedule(config, searchOptions);
+  assert.deepEqual(first.assignments, second.assignments);
+  assert.deepEqual(first.metrics, second.metrics);
+  assert.deepEqual(first.proof, second.proof);
 });

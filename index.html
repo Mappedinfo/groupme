@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#ffffff">
   <meta name="color-scheme" content="light">
-  <meta name="description" content="自由设置人数、多次作业和各次组数，比较机会均衡与整体覆盖两种自动分组方案。">
+  <meta name="description" content="自由设置人数、多次作业、各次组数与类型，选择不同类型混合或同类内组队，比较两种自动分组方案。">
   <title>Groupme · 多认识一些新同学</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./src/style.css">
@@ -33,6 +33,17 @@
           <div class="solve-actions"><button class="button button-dark" type="submit" id="solve-button">求解并比较两种方案 <span aria-hidden="true">↗</span></button><button class="button button-outline" type="button" id="cancel-button" hidden>停止求解</button><p class="small-note">在当前浏览器计算，通常需要几秒</p></div>
         </div>
         <details class="round-settings" id="round-settings"><summary>分别设置每次作业的组数 <span class="small-note">默认自动选择</span><span aria-hidden="true">＋</span></summary><p class="small-note">留空表示自动。组数可以不同；设定组数后，每组人数会尽可能均匀。</p><div id="round-inputs" class="round-inputs"></div><p id="group-range" class="small-note"></p></details>
+        <fieldset class="type-settings">
+          <legend>有需要考虑的类型或水平吗？</legend>
+          <div class="type-policy" role="group" aria-label="类型分组方式">
+            <label><input type="radio" name="type-mode" value="off" checked><span>不区分类型</span></label>
+            <label><input type="radio" name="type-mode" value="mix"><span>不同类型混合</span></label>
+            <label><input type="radio" name="type-mode" value="within"><span>同类型内组队</span></label>
+          </div>
+          <div class="type-edit-row"><p id="type-policy-hint" class="small-note"></p><button type="button" id="edit-types" class="button button-outline">编辑类型</button></div>
+          <div id="type-summary" class="type-summary" aria-label="当前设置的类型人数"></div>
+          <p id="type-draft-note" class="small-note"></p>
+        </fieldset>
         <p id="config-error" class="input-error" role="alert"></p>
       </form>
       <div id="solve-progress" class="solve-progress" hidden><span class="progress-dot" aria-hidden="true"></span><span id="progress-text" role="status" aria-live="polite">正在搜索更好的组合…</span></div>
@@ -49,7 +60,8 @@
 
     <section id="results" class="results" hidden aria-label="求解结果">
       <div class="result-toolbar"><div><h2>看看这次怎么组队</h2><p class="small-note" id="result-detail"></p></div><div class="toolbar-actions"><button class="button button-plain" type="button" id="edit-names">填写姓名</button><button class="button button-outline" type="button" id="copy-rosters">复制全部名单</button></div></div>
-      <div class="result-metrics" aria-label="方案统计"><span>每人认识 <strong id="teammate-range"></strong> 位</span><span>全班覆盖 <strong id="coverage-value"></strong></span><span>重复碰面 <strong id="repeat-count"></strong> 对次</span></div>
+      <div class="result-metrics" aria-label="方案统计"><span>每人认识 <strong id="teammate-range"></strong> 位</span><span><span id="coverage-label">全班覆盖</span> <strong id="coverage-value"></strong></span><span>重复碰面 <strong id="repeat-count"></strong> 对次</span></div>
+      <p id="type-result-note" class="small-note"></p>
       <div class="explorer">
         <section class="groups-section" aria-labelledby="groups-title">
           <div class="groups-toolbar"><h3 id="groups-title"><label for="round-select">查看作业</label></h3><select id="round-select"></select></div>
@@ -60,6 +72,7 @@
         <aside class="person-panel" aria-labelledby="person-title">
           <label class="eyebrow" for="person-select">每个人的合作机会</label>
           <select id="person-select"></select>
+          <p id="person-type" class="small-note"></p>
           <h3 id="person-title" class="sr-only">个人合作详情</h3>
           <p class="person-summary"><strong id="person-count"></strong><span id="person-total"></span></p>
           <div class="coverage-track" aria-hidden="true"><div id="person-bar"></div></div>
@@ -75,9 +88,17 @@
     <p id="status" class="status" role="status" aria-live="polite"></p>
     <noscript><p class="input-error">请启用 JavaScript，以使用自动求解和分组功能。</p></noscript>
   </main>
-  <footer class="site-footer shell"><span>Groupme · 好的合作，从重新分组开始。</span><div><span>姓名和分组只保存在当前浏览器</span><a href="https://github.com/Mappedinfo/groupme" target="_blank" rel="noopener noreferrer">GitHub ↗</a></div></footer>
+  <footer class="site-footer shell"><span>Groupme · 好的合作，从重新分组开始。</span><div><span>姓名、类型和分组只保存在当前浏览器</span><a href="https://github.com/Mappedinfo/groupme" target="_blank" rel="noopener noreferrer">GitHub ↗</a></div></footer>
 
   <dialog id="names-dialog" aria-labelledby="names-title"><form id="names-form"><div class="dialog-heading"><h2 id="names-title">填写同学姓名</h2><button class="icon-button" type="button" id="close-names" aria-label="关闭姓名编辑">×</button></div><p class="dialog-copy" id="names-hint"></p><label for="names-input" class="sr-only">每行一位同学的姓名</label><textarea id="names-input" rows="12" spellcheck="false" aria-describedby="names-count names-error"></textarea><div class="input-meta"><span id="names-count"></span><span>每名最多 20 个字符</span></div><p id="names-error" class="input-error" role="alert"></p><div class="dialog-actions"><button type="button" class="button button-plain" id="restore-numbers">使用编号</button><button type="submit" class="button button-dark">保存姓名</button></div></form></dialog>
   <dialog id="copy-dialog" aria-labelledby="copy-title"><div class="dialog-heading"><h2 id="copy-title">复制全部分组名单</h2><button class="icon-button" id="close-copy" type="button" aria-label="关闭分组名单">×</button></div><p class="dialog-copy">浏览器未能自动复制，请选中下方文字复制。</p><label for="copy-text" class="sr-only">全部分组名单</label><textarea id="copy-text" rows="15" readonly></textarea></dialog>
+  <dialog id="types-dialog" aria-labelledby="types-title"><form id="types-form" novalidate>
+    <div class="dialog-heading"><h2 id="types-title">编辑同学类型</h2><button class="icon-button" id="close-types" type="button" aria-label="关闭类型编辑">×</button></div>
+    <p class="dialog-copy" id="types-hint"></p>
+    <details class="bulk-types"><summary>从表格批量粘贴类型 <span aria-hidden="true">＋</span></summary><p class="small-note">按同学编号顺序，每行一个类型；空行表示未分类。</p><label for="types-bulk" class="sr-only">按编号顺序，每行一个类型</label><textarea id="types-bulk" rows="5" spellcheck="false"></textarea><button id="apply-type-bulk" type="button" class="button button-outline">填入下方列表</button></details>
+    <div class="types-table-heading" aria-hidden="true"><span>同学 · 按编号对应</span><span>类型 / 水平</span></div><div id="type-rows" class="type-rows"></div><datalist id="type-suggestions"></datalist>
+    <p id="types-error" class="input-error" role="alert"></p>
+    <div class="dialog-actions"><span class="small-note">每个标签最多 20 个字符</span><button type="submit" class="button button-dark">保存类型设置</button></div>
+  </form></dialog>
 </body>
 </html>

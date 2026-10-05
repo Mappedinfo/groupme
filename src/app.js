@@ -6,6 +6,7 @@ import {
 const $ = selector => document.querySelector(selector);
 const objectives = ['fair', 'coverage'];
 const titles = { fair: '机会均衡', coverage: '整体覆盖' };
+const typeTitles = { off: '不区分类型', mix: '不同类型混合', within: '同类型内组队' };
 const STORAGE_KEY = 'groupme.v2';
 const TIME_BUDGET = 4000;
 const state = {
@@ -15,6 +16,8 @@ const state = {
 let activeJob = null;
 let nextJobId = 0;
 let roundDraft = [...state.config.groupCounts];
+let typeDraft = Array(14).fill('未分类');
+let restoredDraft = null;
 let statusTimer;
 
 function node(tag, className, text) {
@@ -37,6 +40,18 @@ function displayName(id) {
 function ensureNames(people) {
   for (let i = state.names.length; i < people; i++) state.names.push(`${i + 1}号`);
 }
+function draftPeople() { return Number($('#people-input').value); }
+function validPeople(people) { return Number.isInteger(people) && people >= LIMITS.minPeople && people <= LIMITS.maxPeople; }
+function typeMode() { return $('input[name="type-mode"]:checked').value; }
+function typeOf(id, result = currentResult()) { return result?.config.types?.[id - 1] ?? '未分类'; }
+function typeCounts(types) {
+  const counts = new Map();
+  types.forEach(type => counts.set(type, (counts.get(type) ?? 0) + 1));
+  return [...counts];
+}
+function ensureTypes(people) {
+  for (let i = typeDraft.length; i < people; i++) typeDraft.push('未分类');
+}
 function save(message = '') {
   try {
     const savedResults = {};
@@ -44,7 +59,9 @@ function save(message = '') {
       const result = state.results[goal];
       if (result) savedResults[goal] = { config: result.config, assignments: result.assignments, search: result.search };
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, ...state, results: savedResults }));
+    snapshotDraft();
+    const draft = { people: draftPeople(), rounds: Number($('#rounds-input').value), groupCounts: roundDraft, typeMode: typeMode() };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, ...state, typeDraft, draft, results: savedResults }));
     if (message) announce(message);
   } catch { announce(`${message ? message + ' ' : ''}浏览器无法保存设置，刷新后可能丢失；本次仍可使用和复制。`); }
 }
@@ -64,7 +81,7 @@ function restore() {
         if (!sameSettings(config, resultConfig)) throw new Error('inconsistent saved result');
         validateSchedule(rawResult.assignments, config.people, resultConfig);
         results[goal] = { config: resultConfig, assignments: rawResult.assignments,
-          metrics: analyzeSchedule(rawResult.assignments, config.people),
+          metrics: analyzeSchedule(rawResult.assignments, config.people, resultConfig),
           proof: evaluateProof(rawResult.assignments, resultConfig),
           search: { seed: resultConfig.seed, iterations: Number.isInteger(rawResult.search?.iterations) && rawResult.search.iterations >= 0 ? rawResult.search.iterations : 0, elapsedMs: Number.isFinite(rawResult.search?.elapsedMs) ? rawResult.search.elapsedMs : 0 },
         };
@@ -73,6 +90,10 @@ function restore() {
         person: Number.isInteger(saved.person) && saved.person >= 1 && saved.person <= config.people ? saved.person : 1,
         round: Number.isInteger(saved.round) && saved.round >= 0 && saved.round < config.rounds ? saved.round : 0,
       });
+      typeDraft = Array.isArray(saved.typeDraft) && saved.typeDraft.length <= LIMITS.maxPeople && saved.typeDraft.every(type => typeof type === 'string' && !/[\r\n]/.test(type) && [...type].length <= 20)
+        ? saved.typeDraft.map(type => type.trim() || '未分类') : [...config.types];
+      const draft = saved.draft;
+      if (draft && validPeople(draft.people) && Number.isInteger(draft.rounds) && draft.rounds >= 1 && draft.rounds <= LIMITS.maxRounds && Object.hasOwn(typeTitles, draft.typeMode) && Array.isArray(draft.groupCounts) && draft.groupCounts.length <= LIMITS.maxRounds && draft.groupCounts.every(count => count === null || Number.isInteger(count))) restoredDraft = draft;
       if (!state.results[state.objective]) state.objective = results.fair ? 'fair' : 'coverage';
       if (!Object.keys(results).length) state.objective = 'fair';
       return;
@@ -94,7 +115,31 @@ function restore() {
   } catch { announce('保存的设置无法读取，已恢复默认设置，可以重新填写姓名。'); }
 }
 function sameSettings(a, b) {
-  return a.people === b.people && a.rounds === b.rounds && JSON.stringify(a.groupCounts) === JSON.stringify(b.groupCounts);
+  return a.people === b.people && a.rounds === b.rounds && JSON.stringify(a.groupCounts) === JSON.stringify(b.groupCounts)
+    && (a.typeMode ?? 'off') === (b.typeMode ?? 'off')
+    && ((a.typeMode ?? 'off') === 'off' || JSON.stringify(a.types) === JSON.stringify(b.types));
+}
+function renderTypeSettings() {
+  const people = draftPeople();
+  const valid = validPeople(people);
+  const mode = typeMode();
+  $('#edit-types').disabled = !valid || Boolean(activeJob);
+  $('#type-policy-hint').textContent = {
+    off: '只考虑新队友，不使用类型限制。类型标签可以提前保存。',
+    mix: '把每种类型均匀分散到各组，让同类型尽量分开，再优化新队友。',
+    within: '每组只含相同类型；所有小组仍保持人数差至多 1。无法兼顾时会提示调整。',
+  }[mode];
+  const summary = $('#type-summary');
+  summary.replaceChildren();
+  if (!valid) { $('#type-draft-note').textContent = '先填写有效的总人数，再编辑对应同学的类型。'; return; }
+  ensureTypes(people);
+  const counts = typeCounts(typeDraft.slice(0, people));
+  counts.forEach(([type, count]) => summary.append(node('span', 'type-badge', `${type} · ${count} 人`)));
+  const changed = state.config.people !== people || (state.config.typeMode ?? 'off') !== mode || JSON.stringify(state.config.types ?? Array(state.config.people).fill('未分类')) !== JSON.stringify(typeDraft.slice(0, people));
+  $('#type-draft-note').textContent = counts.length === 1 && mode !== 'off'
+    ? `当前所有人都是“${counts[0][0]}”。编辑为不同标签后，类型才会影响分组。${changed ? '重新求解后生效。' : ''}`
+    : changed && currentResult() ? '类型设置待应用，点击「求解并比较两种方案」后更新；下方仍显示上次结果。'
+    : '标签可自由填写，例如基础、进阶、熟练。空白归为“未分类”，也作为一种类型。';
 }
 function snapshotDraft() {
   const fields = document.querySelectorAll('[data-round-input]');
@@ -120,26 +165,32 @@ function renderRoundInputs() {
     ? `当前每次可以分为 3–${maximum} 组；没有额外组数上限。` : '每次至少 3 组、每组至少 2 人，总人数至少为 6。';
 }
 function fillSettings() {
-  $('#people-input').value = state.config.people;
-  $('#rounds-input').value = state.config.rounds;
+  const settings = restoredDraft ?? state.config;
+  $('#people-input').value = settings.people;
+  $('#rounds-input').value = settings.rounds;
   $('#round-inputs').replaceChildren();
-  roundDraft = [...state.config.groupCounts];
+  roundDraft = [...settings.groupCounts];
   renderRoundInputs();
-  $('#round-settings').open = state.config.groupCounts.some(count => count !== null);
+  $('#round-settings').open = settings.groupCounts.some(count => count !== null);
+  $(`input[name="type-mode"][value="${settings.typeMode ?? 'off'}"]`).checked = true;
+  ensureTypes(settings.people);
+  renderTypeSettings();
 }
 function readConfig() {
   snapshotDraft();
   const people = Number($('#people-input').value);
   const rounds = Number($('#rounds-input').value);
   const seed = globalThis.crypto?.getRandomValues ? crypto.getRandomValues(new Uint32Array(1))[0] : Date.now() >>> 0;
-  return validateConfig({ people, rounds, groupCounts: Array.from({ length: Number.isInteger(rounds) && rounds > 0 && rounds <= LIMITS.maxRounds ? rounds : 0 }, (_, i) => roundDraft[i] ?? null), objective: state.objective, seed });
+  if (validPeople(people)) ensureTypes(people);
+  return validateConfig({ people, rounds, groupCounts: Array.from({ length: Number.isInteger(rounds) && rounds > 0 && rounds <= LIMITS.maxRounds ? rounds : 0 }, (_, i) => roundDraft[i] ?? null), typeMode: typeMode(), types: typeDraft.slice(0, people), objective: state.objective, seed });
 }
 function setBusy(busy) {
   $('#solve-button').disabled = busy;
   $('#edit-names').disabled = busy;
+  $('#edit-types').disabled = busy || !validPeople(draftPeople());
   $('#cancel-button').hidden = !busy;
   $('#solve-progress').hidden = !busy;
-  document.querySelectorAll('#settings-form input').forEach(input => { input.disabled = busy; });
+  document.querySelectorAll('#settings-form input, #settings-form select').forEach(input => { input.disabled = busy; });
   $('#settings').setAttribute('aria-busy', String(busy));
 }
 function resultQuality(result) { return result.proof.optimal ? '已证明覆盖目标最优' : '本次找到的最好方案 · 未证明全局最优'; }
@@ -164,7 +215,7 @@ function renderComparison() {
     }
   }
   if (Object.keys(state.results).length) {
-    $('#result-context').textContent = `当前结果：${state.config.people} 人 · ${state.config.rounds} 次作业 · 两种方案使用相同约束`;
+    $('#result-context').textContent = `当前结果：${state.config.people} 人 · ${state.config.rounds} 次作业 · ${typeTitles[state.config.typeMode ?? 'off']} · 两种方案使用相同约束`;
   }
   const { fair, coverage } = state.results;
   $('#comparison-note').textContent = fair && coverage && fair.metrics.uniquePairs === coverage.metrics.uniquePairs && fair.metrics.minimumTeammates === coverage.metrics.minimumTeammates
@@ -192,10 +243,16 @@ function renderRound() {
       button.setAttribute('aria-label', `查看 ${displayName(id)} 的合作情况`);
       button.title = displayName(id);
       if (nameOf(id) !== `${id}号`) button.append(node('small', '', String(id)));
+      if (result.config.typeMode !== 'off') {
+        button.append(node('span', 'chip-type', typeOf(id, result)));
+        button.setAttribute('aria-label', `查看 ${displayName(id)}（${typeOf(id, result)}）的合作情况`);
+      }
       button.addEventListener('click', () => { state.person = id; renderPerson(); save(); });
       people.append(button);
     });
-    section.append(heading, people); container.append(section);
+    section.append(heading, people);
+    if (result.config.typeMode !== 'off') section.append(node('p', 'group-types', typeCounts(group.map(id => typeOf(id, result))).map(([type, count]) => `${type} ${count} 人`).join(' · ')));
+    container.append(section);
   });
   renderPerson(false);
 }
@@ -206,9 +263,13 @@ function renderPerson(shouldAnnounce = true) {
   const thisRound = person.rounds[state.round];
   $('#person-select').value = String(state.person);
   $('#person-count').textContent = String(person.uniqueCount);
-  $('#person-total').textContent = `/ ${state.config.people - 1} 位其他同学`;
-  $('#person-bar').style.width = `${person.uniqueCount / (state.config.people - 1) * 100}%`;
-  $('#person-caption').textContent = person.uniqueCount === state.config.people - 1 ? '已经和每一位其他同学合作。' : `还有 ${state.config.people - 1 - person.uniqueCount} 位同学尚未合作。`;
+  const within = result.config.typeMode === 'within';
+  const eligible = within ? person.eligibleTeammates : state.config.people - 1;
+  $('#person-total').textContent = `/ ${eligible} 位${within ? '同类型' : '其他'}同学`;
+  $('#person-type').hidden = result.config.typeMode === 'off';
+  $('#person-type').textContent = `类型：${typeOf(state.person, result)}`;
+  $('#person-bar').style.width = `${eligible ? person.uniqueCount / eligible * 100 : 0}%`;
+  $('#person-caption').textContent = person.uniqueCount === eligible ? `已经和每一位${within ? '同类型' : '其他'}同学合作。` : `还有 ${eligible - person.uniqueCount} 位${within ? '同类型' : ''}同学尚未合作。`;
   $('#mate-title').textContent = `作业 ${state.round + 1} · 第 ${thisRound.groupIndex + 1} 组 · ${thisRound.newTeammates.length} 位新队友`;
   const mates = $('#mate-list'); mates.replaceChildren();
   thisRound.teammates.forEach(id => {
@@ -230,8 +291,8 @@ function renderPerson(shouldAnnounce = true) {
     history.append(item);
   });
   const seen = new Set([state.person, ...person.teammates]);
-  const unmet = Array.from({ length:state.config.people }, (_,i)=>i+1).filter(id=>!seen.has(id));
-  $('#unmet-title').textContent = `尚未合作的同学（${unmet.length}）`;
+  const unmet = Array.from({ length:state.config.people }, (_,i)=>i+1).filter(id=>!seen.has(id) && (!within || typeOf(id, result) === typeOf(state.person, result)));
+  $('#unmet-title').textContent = `尚未合作的${within ? '同类型' : ''}同学（${unmet.length}）`;
   $('#unmet-list').textContent = unmet.length ? unmet.map(displayName).join('、') : '已经全部认识。';
   if (shouldAnnounce) $('#selection-announcement').textContent = `${displayName(state.person)}，共认识 ${person.uniqueCount} 位不同同学，作业 ${state.round + 1} 有 ${thisRound.newTeammates.length} 位新队友。`;
 }
@@ -243,9 +304,16 @@ function renderResults() {
   state.person = Math.min(state.person, state.config.people);
   state.round = Math.min(state.round, state.config.rounds - 1);
   const m = result.metrics;
-  $('#result-detail').textContent = `${titles[state.objective]} · ${state.config.people} 人 / ${state.config.rounds} 次作业`;
+  $('#result-detail').textContent = `${titles[state.objective]} · ${state.config.people} 人 / ${state.config.rounds} 次作业 · ${typeTitles[result.config.typeMode]}`;
   $('#teammate-range').textContent = m.minimumTeammates === m.maximumTeammates ? String(m.minimumTeammates) : `${m.minimumTeammates}–${m.maximumTeammates}`;
-  $('#coverage-value').textContent = `${m.uniquePairs}/${m.possiblePairs} 对（${(m.uniquePairs / m.possiblePairs * 100).toFixed(1)}%）`;
+  const within = result.config.typeMode === 'within';
+  const denominator = within ? m.eligiblePairs : m.possiblePairs;
+  $('#coverage-label').textContent = within ? '同类型内覆盖' : '全班覆盖';
+  $('#coverage-value').textContent = `${m.uniquePairs}/${denominator} 对（${(m.uniquePairs / denominator * 100).toFixed(1)}%）`;
+  $('#type-result-note').hidden = result.config.typeMode === 'off';
+  $('#type-result-note').textContent = within
+    ? `只在同类型内计算可合作范围。全班实际覆盖 ${m.uniquePairs}/${m.possiblePairs} 对（${(m.coverage * 100).toFixed(1)}%）；不同类型之间不安排合作。`
+    : '每种类型在各组的人数差至多 1，再尽量增加新队友。部分搭档可能因类型均匀分散的要求而无法同组。';
   $('#repeat-count').textContent = m.repeatMeetings;
   const select = $('#round-select'); select.replaceChildren();
   result.assignments.forEach((groups, i) => { const option = node('option', '', `作业 ${i+1} · ${groups.length} 组`); option.value = String(i); select.append(option); });
@@ -275,7 +343,7 @@ function settleJob(job) {
   for (const goal of objectives) {
     for (const candidate of candidates) {
       if (!next[goal] || compareMetrics(candidate.metrics, next[goal].metrics, goal) > 0) {
-        const config = { ...candidate.config, objective:goal };
+        const config = { ...candidate.config, types: [...job.config.types], objective:goal };
         next[goal] = { ...candidate, config, proof:evaluateProof(candidate.assignments, config) };
       }
     }
@@ -287,6 +355,7 @@ function settleJob(job) {
   state.person = Math.min(state.person, state.config.people);
   state.round = Math.min(state.round, state.config.rounds - 1);
   renderResults();
+  renderTypeSettings();
   save(job.errors.length ? `已有可行方案；部分搜索未完成：${job.errors.join('；')}。` : '两种目标已求解，可以切换比较。');
 }
 function startSolve() {
@@ -342,18 +411,22 @@ function cancelSolve() {
 }
 function rosterText() {
   const result = currentResult();
-  const lines = [`Groupme · ${state.config.people} 人 / ${state.config.rounds} 次作业`, `目标：${titles[state.objective]}`, resultQuality(result), ''];
+  const lines = [`Groupme · ${state.config.people} 人 / ${state.config.rounds} 次作业`, `目标：${titles[state.objective]}`, `类型方式：${typeTitles[result.config.typeMode]}`, resultQuality(result), ''];
+  const rosterName = id => result.config.typeMode === 'off' ? displayName(id) : `${displayName(id)}【${typeOf(id, result)}】`;
   result.assignments.forEach((groups, round) => {
     lines.push(`作业 ${round+1}（${groups.length} 组）`);
-    groups.forEach((group, index)=>lines.push(`第 ${index+1} 组：${group.map(displayName).join('、')}`)); lines.push('');
+    groups.forEach((group, index)=>lines.push(`第 ${index+1} 组：${group.map(rosterName).join('、')}`)); lines.push('');
   });
   const m = result.metrics;
-  lines.push(`每人认识 ${m.minimumTeammates}–${m.maximumTeammates} 位不同同学；全班 ${m.uniquePairs}/${m.possiblePairs} 对不同搭档；重复碰面 ${m.repeatMeetings} 对次。`);
+  lines.push(`每人认识 ${m.minimumTeammates}–${m.maximumTeammates} 位不同同学；${result.config.typeMode === 'within' ? `同类型内 ${m.uniquePairs}/${m.eligiblePairs} 对；` : ''}全班 ${m.uniquePairs}/${m.possiblePairs} 对不同搭档；重复碰面 ${m.repeatMeetings} 对次。`);
+  if (result.config.typeMode === 'mix') lines.push('每种类型在各组的人数差至多 1；全班覆盖比例不代表全部搭档均能在此限制下同组。');
   return lines.join('\n');
 }
 
-$('#people-input').addEventListener('input', renderRoundInputs);
+$('#people-input').addEventListener('input', () => { renderRoundInputs(); renderTypeSettings(); });
 $('#rounds-input').addEventListener('input', renderRoundInputs);
+$('#settings-form').addEventListener('change', () => { renderTypeSettings(); save(); });
+document.querySelectorAll('input[name="type-mode"]').forEach(input => input.addEventListener('change', () => { $('#config-error').textContent = ''; }));
 $('#settings-form').addEventListener('submit', event => { event.preventDefault(); startSolve(); });
 $('#cancel-button').addEventListener('click', cancelSolve);
 for (const goal of objectives) $(`#${goal}-card`).addEventListener('click', () => { if (!state.results[goal]) return; state.objective = goal; renderResults(); save(); });
@@ -379,6 +452,65 @@ $('#names-form').addEventListener('submit', event => {
     state.names = [...names, ...state.names.slice(state.config.people)];
     renderResults(); namesDialog.close(); save('姓名已更新，分组位置保持不变。');
   } catch (error) { $('#names-error').textContent=error.message; $('#names-input').setAttribute('aria-invalid','true'); $('#names-input').focus(); }
+});
+
+const typesDialog = $('#types-dialog');
+let typesEditorPeople = 0;
+function normalizeTypes(values) {
+  return values.map((value, index) => {
+    const type = value.trim() || '未分类';
+    if ([...type].length > 20) throw new Error(`${index + 1} 号同学的类型不能超过 20 个字符。`);
+    return type;
+  });
+}
+function editorTypeFields() { return [...document.querySelectorAll('[data-type-id]')]; }
+function updateTypeSuggestions() {
+  $('#type-suggestions').replaceChildren(...[...new Set(editorTypeFields().map(input => input.value.trim()).filter(Boolean))].map(value => {
+    const option = node('option'); option.value = value; return option;
+  }));
+}
+$('#edit-types').addEventListener('click', () => {
+  typesEditorPeople = draftPeople();
+  if (!validPeople(typesEditorPeople) || activeJob) return;
+  ensureTypes(typesEditorPeople);
+  $('#types-title').textContent = `${typesEditorPeople} 位同学的类型`;
+  $('#types-hint').textContent = '对应上方待求解的总人数。标签按编号与同学绑定；保存后重新求解才会应用到分组。';
+  $('#types-error').textContent = '';
+  const rows = $('#type-rows'); rows.replaceChildren();
+  for (let id = 1; id <= typesEditorPeople; id++) {
+    const row = node('label', 'type-row');
+    const person = node('span', 'type-row-person');
+    person.append(node('small', '', String(id).padStart(2, '0')), node('span', '', nameOf(id)));
+    const input = node('input');
+    input.type = 'text'; input.value = typeDraft[id - 1] === '未分类' ? '' : typeDraft[id - 1]; input.placeholder = '未分类';
+    input.dataset.typeId = String(id); input.maxLength = 40; input.setAttribute('list', 'type-suggestions');
+    input.setAttribute('aria-label', `${id} 号同学 ${nameOf(id)} 的类型`);
+    input.addEventListener('change', updateTypeSuggestions);
+    row.append(person, input); rows.append(row);
+  }
+  $('#types-bulk').value = typeDraft.slice(0, typesEditorPeople).join('\n');
+  $('#types-bulk').maxLength = typesEditorPeople * 42;
+  updateTypeSuggestions(); typesDialog.showModal();
+});
+$('#close-types').addEventListener('click', () => typesDialog.close());
+$('#apply-type-bulk').addEventListener('click', () => {
+  try {
+    let lines = $('#types-bulk').value.replace(/\r\n?/g, '\n').split('\n');
+    if (lines.length === typesEditorPeople + 1 && lines.at(-1) === '') lines.pop();
+    if (lines.length !== typesEditorPeople) throw new Error(`请按编号填写恰好 ${typesEditorPeople} 行，当前为 ${lines.length} 行；空行也占一位。`);
+    const types = normalizeTypes(lines);
+    editorTypeFields().forEach((input, i) => { input.value = types[i] === '未分类' ? '' : types[i]; });
+    updateTypeSuggestions(); $('#types-error').textContent = '';
+  } catch (error) { $('#types-error').textContent = error.message; }
+});
+$('#types-form').addEventListener('submit', event => {
+  event.preventDefault();
+  try {
+    const types = normalizeTypes(editorTypeFields().map(input => input.value));
+    typeDraft = [...types, ...typeDraft.slice(typesEditorPeople)];
+    typesDialog.close(); renderTypeSettings(); $('#config-error').textContent = '';
+    save('类型设置已保存。重新求解后应用到分组。');
+  } catch (error) { $('#types-error').textContent = error.message; }
 });
 $('#copy-rosters').addEventListener('click', async () => {
   const text = rosterText();
