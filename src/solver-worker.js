@@ -1,4 +1,4 @@
-import { solveSchedule } from './grouping.js';
+import { solveSchedule } from './grouping.js?v=types-1';
 
 self.addEventListener('message', (event) => {
   const message = event.data;

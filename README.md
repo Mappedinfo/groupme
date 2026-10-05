@@ -75,6 +75,8 @@ npm test
 
 GitHub Pages 从 `main` 分支根目录发布，所有资源使用相对路径，无构建步骤。`.nojekyll` 关闭 Jekyll 处理。
 
+发布涉及脚本或样式更新时，同步更新 HTML 入口、页面内核导入、Worker 地址与 Worker 内核导入的资源版本参数，避免浏览器把新页面与缓存的旧脚本混用。
+
 - `src/grouping.js`：约束、求解、统计与最优性界。
 - `src/solver-worker.js`：后台求解消息协议。
 - `src/app.js`：两方案比较、输入、浏览器保存与复制。
