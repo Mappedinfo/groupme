@@ -55,6 +55,21 @@ function allowedCounts(n, mode, counts) {
   return allowed;
 }
 
+// 距离写成 |N-pK|/K，以整数交叉乘积判断并列，避免浮点误差遗漏候选。
+function compareSizeDistance(n, preferred, a, b) {
+  return Math.abs(n - preferred * a) * b - Math.abs(n - preferred * b) * a;
+}
+
+function effectiveAutomaticCounts(config, context = typeContext(config)) {
+  const allowed = allowedCounts(config.people, config.typeMode, context.counts);
+  if (config.preferredSize === null) return allowed;
+  let best = allowed[0];
+  for (const k of allowed) {
+    if (compareSizeDistance(config.people, config.preferredSize, k, best) < 0) best = k;
+  }
+  return allowed.filter((k) => compareSizeDistance(config.people, config.preferredSize, k, best) === 0);
+}
+
 export function validateConfig(config) {
   if (!config || typeof config !== 'object') throw new Error('请提供有效的分组设置。');
   const people = integer(config.people, LIMITS.minPeople, LIMITS.maxPeople, '总人数');
@@ -66,6 +81,8 @@ export function validateConfig(config) {
   if (!['fair', 'coverage'].includes(objective)) throw new Error('请选择公平优先或覆盖优先。');
   const seed = config.seed ?? 1;
   integer(seed, 0, 0xffffffff, '随机种子');
+  const preferredSize = config.preferredSize ?? null;
+  if (preferredSize !== null) integer(preferredSize, 2, LIMITS.maxPeople, '每组期望人数');
   const typeMode = config.typeMode ?? 'off';
   if (!['off', 'mix', 'within'].includes(typeMode)) throw new Error('请选择不限制类型、均匀混合或同类组队。');
   const rawTypes = config.types ?? Array(people).fill('未分类');
@@ -76,7 +93,7 @@ export function validateConfig(config) {
     if (Array.from(label).length > 20) throw new Error(`第 ${index + 1} 位同学的类型不能超过 20 个字符。`);
     return label;
   });
-  const normalized = { people, rounds, groupCounts, objective, seed: seed >>> 0, typeMode, types };
+  const normalized = { people, rounds, groupCounts, objective, seed: seed >>> 0, typeMode, types, preferredSize };
   if (typeMode === 'within') {
     const context = typeContext(normalized);
     const singleton = context.counts.indexOf(1);
@@ -95,16 +112,40 @@ export function feasibleGroupCounts(config) {
   return allowedCounts(normalized.people, normalized.typeMode, typeContext(normalized).counts);
 }
 
+export function getAutomaticGroupCounts(config) {
+  return effectiveAutomaticCounts(validateConfig(config));
+}
+
+/** 推荐不受逐轮手动组数限制。未填写偏好时仅以约 4 人排序，不改变求解约束。 */
+export function getSizeOptions(config) {
+  if (!config || typeof config !== 'object') throw new Error('请提供有效的分组设置。');
+  const normalized = validateConfig({ ...config, groupCounts: undefined });
+  const preferred = normalized.preferredSize ?? 4;
+  return allowedCounts(normalized.people, normalized.typeMode, typeContext(normalized).counts)
+    .sort((a, b) => compareSizeDistance(normalized.people, preferred, a, b) || a - b)
+    .map((groupCount) => ({
+      groupCount,
+      sizes: balancedSizes(normalized.people, groupCount),
+      averageSize: normalized.people / groupCount,
+      distance: Math.abs(normalized.people - preferred * groupCount) / groupCount,
+    }));
+}
+
 export function validateSchedule(assignments, n, config) {
   integer(n, LIMITS.minPeople, LIMITS.maxPeople, '总人数');
   if (!Array.isArray(assignments) || assignments.length < 1 || assignments.length > LIMITS.maxRounds) throw new Error(`作业次数须为 1 至 ${LIMITS.maxRounds}。`);
   const normalized = config ? validateConfig(config) : null;
   if (normalized && (normalized.people !== n || normalized.rounds !== assignments.length)) throw new Error('分组与总人数或作业次数不一致。');
+  const automaticCounts = normalized ? effectiveAutomaticCounts(normalized) : null;
   for (let r = 0; r < assignments.length; r += 1) {
     const round = assignments[r];
     if (!Array.isArray(round)) throw new Error(`作业 ${r + 1} 的分组无效。`);
     const expectedSizes = balancedSizes(n, round.length);
     if (normalized?.groupCounts[r] != null && normalized.groupCounts[r] !== round.length) throw new Error(`作业 ${r + 1} 的组数与设置不一致。`);
+    if (normalized?.groupCounts[r] === null && !automaticCounts.includes(round.length)) {
+      const requirement = normalized.preferredSize === null ? '当前类型组队约束' : `每组期望人数 ${normalized.preferredSize} 人`;
+      throw new Error(`作业 ${r + 1} 的组数不符合${requirement}；自动可选组数为 ${automaticCounts.join('、')}。`);
+    }
     if (round.some((group) => !Array.isArray(group))) throw new Error('每个小组须为成员列表。');
     const sizes = round.map((group) => group.length).sort((a, b) => b - a);
     if (sizes.some((size, i) => size !== expectedSizes[i])) throw new Error(`作业 ${r + 1} 必须均匀分组，每组至少两人，大小最多相差一人。`);
@@ -249,7 +290,7 @@ function pairMeetingsFor(n, k) {
 function boundsFor(config) {
   const n = config.people;
   const context = typeContext(config);
-  const smallestK = allowedCounts(n, config.typeMode, context.counts)[0];
+  const smallestK = effectiveAutomaticCounts(config, context)[0];
   const maxPairs = config.groupCounts.reduce((sum, k) => sum + pairMeetingsFor(n, k ?? smallestK), 0);
   const possiblePairs = config.typeMode === 'within' ? context.counts.reduce((sum, count) => sum + count * (count - 1) / 2, 0) : n * (n - 1) / 2;
   const personalCap = config.typeMode === 'within' ? Math.min(...context.counts) - 1 : n - 1;
@@ -469,7 +510,7 @@ export function solveSchedule(rawConfig, options = {}) {
   const random = rngFrom(config.seed);
   const n = config.people;
   const context = typeContext(config);
-  const allowedK = allowedCounts(n, config.typeMode, context.counts);
+  const allowedK = effectiveAutomaticCounts(config, context);
   const smallestK = allowedK[0];
   const eligiblePairs = config.typeMode === 'within' ? context.counts.reduce((sum, count) => sum + count * (count - 1) / 2, 0) : n * (n - 1) / 2;
   const scratch = new Int16Array(n);
@@ -510,7 +551,7 @@ export function solveSchedule(rawConfig, options = {}) {
     }
   }
   const automaticRounds = config.groupCounts.map((k, i) => k === null ? i : -1).filter((i) => i >= 0);
-  const allPairs = n % 2 === 0 && config.groupCounts.every((k) => k === n / 2)
+  const allPairs = n % 2 === 0 && config.groupCounts.every((k) => k === n / 2 || (k === null && allowedK.length === 1 && allowedK[0] === n / 2))
     && (config.typeMode === 'off' || context.counts.length === 1);
   let schedule = [];
   let state = createState(n, context);

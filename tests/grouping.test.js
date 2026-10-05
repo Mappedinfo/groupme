@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   LIMITS, balancedSizes, validateConfig, validateSchedule, solveSchedule,
   analyzeSchedule, compareMetrics, getPersonSummary, defaultNames, parseNames, evaluateProof,
-  feasibleGroupCounts,
+  feasibleGroupCounts, getSizeOptions, getAutomaticGroupCounts,
 } from '../src/grouping.js';
 
 const ids = (n) => Array.from({ length: n }, (_, index) => index + 1);
@@ -401,6 +401,18 @@ test('Worker 实际消息处理保留请求编号，返回可验证分组和可�
     assertSchedule(typedResult.result, typed);
     assert.ok(typedResult.result.assignments.every((round) => followsTypes(round, typed.types, 'within')));
     messages.length = 0;
+    const preferred = {
+      ...configFor(14, [null, 7]), preferredSize: 5,
+      typeMode: 'within', types: labelsFromSizes([6, 8]),
+    };
+    handler({ data: { type: 'solve', requestId: 'case-size', config: preferred, timeBudgetMs: 100 } });
+    const preferredResult = messages.find((message) => message.type === 'result');
+    assert.ok(preferredResult);
+    assert.equal(preferredResult.requestId, 'case-size');
+    assert.equal(preferredResult.result.config.preferredSize, 5);
+    assert.deepEqual(preferredResult.result.assignments.map((round) => round.length), [4, 7]);
+    assertSchedule(preferredResult.result, preferred);
+    messages.length = 0;
     handler({ data: { type: 'solve', requestId: 0, config: { ...config, people: 5 } } });
     assert.equal(messages.length, 1);
     assert.equal(messages[0].type, 'error');
@@ -589,6 +601,133 @@ test('类型约束保留固定种子复现与输入不可变', () => {
   Object.freeze(config);
   const first = solveSchedule(config, searchOptions);
   const second = solveSchedule(config, searchOptions);
+  assert.deepEqual(first.assignments, second.assignments);
+  assert.deepEqual(first.metrics, second.metrics);
+  assert.deepEqual(first.proof, second.proof);
+});
+
+function canonicalRound(n, k) {
+  let person = 0;
+  return Array.from({ length: k }, (_, group) => Array.from({
+    length: Math.floor(n / k) + Number(group < n % k),
+  }, () => ++person));
+}
+
+test('期望人数默认空值，非法范围与类型被拒绝', () => {
+  const base = configFor(14, [null]);
+  assert.equal(validateConfig(base).preferredSize, null);
+  assert.equal(validateConfig({ ...base, preferredSize: null }).preferredSize, null);
+  for (const preferredSize of [2, 4, 300]) assert.equal(validateConfig({ ...base, preferredSize }).preferredSize, preferredSize);
+  for (const preferredSize of [0, 1, -1, 301, 2.5, NaN, Infinity, '4', true]) {
+    assert.throws(() => validateConfig({ ...base, preferredSize }), Error);
+  }
+});
+
+for (const [n, target, expectedK, sizes] of [
+  [14, 4, 4, [4, 4, 3, 3]], [14, 3, 5, [3, 3, 3, 3, 2]],
+  [40, 4, 10, Array(10).fill(4)], [14, 2, 7, Array(7).fill(2)],
+  [14, 300, 3, [5, 5, 4]],
+]) {
+  test(`${n} 人期望每组 ${target} 人：自动选最近平均人数的 ${expectedK} 组`, () => {
+    for (const objective of ['fair', 'coverage']) {
+      const config = { ...configFor(n, [null], objective), preferredSize: target };
+      assert.deepEqual(getAutomaticGroupCounts(config), [expectedK]);
+      const result = solveSchedule(config, searchOptions);
+      assertSchedule(result, config);
+      assert.equal(result.assignments[0].length, expectedK);
+      assert.deepEqual(result.assignments[0].map((group) => group.length).sort((a, b) => b - a), sizes);
+      const pairCapacity = sizes.reduce((sum, size) => sum + size * (size - 1) / 2, 0);
+      assert.equal(result.proof.uniquePairsUpperBound, pairCapacity);
+      assert.equal(result.proof.minTeammatesUpperBound, Math.min(...sizes) - 1);
+      assert.equal(result.proof.optimal, true);
+    }
+  });
+}
+
+test('期望人数平手全部保留：24 人期望 7 人，3 组和 4 组均合法', () => {
+  const config = { ...configFor(24, [null]), preferredSize: 7 };
+  assert.deepEqual(getAutomaticGroupCounts(config), [3, 4]);
+  assert.equal(validateSchedule([canonicalRound(24, 3)], 24, config), true);
+  assert.equal(validateSchedule([canonicalRound(24, 4)], 24, config), true);
+  assert.throws(() => validateSchedule([canonicalRound(24, 5)], 24, config), Error);
+  const options = getSizeOptions(config);
+  assert.deepEqual(options.slice(0, 2).map((option) => [option.groupCount, option.distance]), [[3, 1], [4, 1]]);
+  const result = solveSchedule(config, searchOptions);
+  assert.equal(result.assignments[0].length, 3);
+  assert.equal(result.proof.uniquePairsUpperBound, 84);
+  assert.equal(result.proof.optimal, true);
+});
+
+test('推荐列出全部类型合法组数，并独立于已经手动指定的组数', () => {
+  const automatic = { ...configFor(14, [null]), preferredSize: 4 };
+  const manual = { ...automatic, groupCounts: [7] };
+  const options = getSizeOptions(automatic);
+  assert.deepEqual(getSizeOptions(manual), options);
+  assert.deepEqual(options.map((option) => option.groupCount).sort((a, b) => a - b), [3, 4, 5, 6, 7]);
+  assert.equal(options[0].groupCount, 4);
+  for (const option of options) {
+    assert.equal(option.averageSize, 14 / option.groupCount);
+    assert.ok(Math.abs(option.distance - Math.abs(14 / option.groupCount - 4)) < 1e-12);
+    assert.deepEqual(option.sizes, canonicalRound(14, option.groupCount).map((group) => group.length));
+  }
+  const noPreference = configFor(14, [null]);
+  assert.deepEqual(getAutomaticGroupCounts(noPreference), [3, 4, 5, 6, 7]);
+  assert.equal(getSizeOptions(noPreference)[0].groupCount, 4);
+  assert.equal(solveSchedule(noPreference, searchOptions).assignments[0].length, 3);
+});
+
+test('手动组数覆盖本轮期望；多轮自动与手动可以混合', () => {
+  const config = { ...configFor(14, [null, 7, null, 3]), preferredSize: 4 };
+  const result = solveSchedule(config, searchOptions);
+  assertSchedule(result, config);
+  assert.deepEqual(result.assignments.map((round) => round.length), [4, 7, 4, 3]);
+  assert.equal(result.proof.uniquePairsUpperBound, 18 + 7 + 18 + 26);
+  const manual = { ...configFor(14, [3]), preferredSize: 4 };
+  assert.equal(validateSchedule([canonicalRound(14, 3)], 14, manual), true);
+  const one = solveSchedule(manual, searchOptions);
+  assert.equal(one.metrics.uniquePairs, 26);
+  assert.equal(one.proof.uniquePairsUpperBound, 26);
+  assert.equal(one.proof.optimal, true);
+});
+
+test('恢复分组时验证自动轮的期望限制，而手动轮保留覆盖权', () => {
+  const config = { ...configFor(14, [null, 5]), preferredSize: 4 };
+  assert.equal(validateSchedule([canonicalRound(14, 4), canonicalRound(14, 5)], 14, config), true);
+  assert.throws(() => validateSchedule([canonicalRound(14, 5), canonicalRound(14, 5)], 14, config), Error);
+  assert.throws(() => evaluateProof([canonicalRound(14, 3)], { ...config, rounds: 1, groupCounts: [null] }), Error);
+});
+
+test('类型内期望只能在可行组数中选：6+8 人期望 5 人回退到 4 组', () => {
+  const config = {
+    ...configFor(14, [null, 7, null]), preferredSize: 5,
+    typeMode: 'within', types: labelsFromSizes([6, 8]),
+  };
+  const result = solveSchedule(config, searchOptions);
+  assertSchedule(result, config);
+  assert.deepEqual(result.assignments.map((round) => round.length), [4, 7, 4]);
+  assert.deepEqual(getAutomaticGroupCounts(config), [4]);
+  assert.ok(result.assignments.every((round) => followsTypes(round, config.types, 'within')));
+  const options = getSizeOptions(config);
+  assert.deepEqual(options.map((option) => option.groupCount).sort((a, b) => a - b), [4, 5, 6, 7]);
+  assert.equal(options[0].groupCount, 4);
+  assert.equal(options[0].averageSize, 3.5);
+  assert.equal(options[0].distance, 1.5);
+  assert.deepEqual(getSizeOptions({ ...config, groupCounts: [3, 3, 3] }), options);
+});
+
+test('期望、类型分散与固定工作量同时使用仍可复现且不修改输入', () => {
+  const config = {
+    ...configFor(20, [null, 10, null], 'fair', 123), preferredSize: 4,
+    typeMode: 'mix', types: labelsFromSizes([6, 7, 7]),
+  };
+  Object.freeze(config.groupCounts);
+  Object.freeze(config.types);
+  Object.freeze(config);
+  const first = solveSchedule(config, searchOptions);
+  const second = solveSchedule(config, searchOptions);
+  assertSchedule(first, config);
+  assert.deepEqual(first.assignments.map((round) => round.length), [5, 10, 5]);
+  assert.ok(first.assignments.every((round) => followsTypes(round, config.types, 'mix')));
   assert.deepEqual(first.assignments, second.assignments);
   assert.deepEqual(first.metrics, second.metrics);
   assert.deepEqual(first.proof, second.proof);

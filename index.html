@@ -8,8 +8,8 @@
   <meta name="description" content="自由设置人数、多次作业、各次组数与类型，选择不同类型混合或同类内组队，比较两种自动分组方案。">
   <title>Groupme · 多认识一些新同学</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./src/style.css?v=types-1">
-  <script type="module" src="./src/app.js?v=types-1"></script>
+  <link rel="stylesheet" href="./src/style.css?v=size-1">
+  <script type="module" src="./src/app.js?v=size-1"></script>
 </head>
 <body>
   <a class="skip-link" href="#settings">跳到分组设置</a>
@@ -30,9 +30,11 @@
         <div class="settings-row">
           <label class="field">总人数 <span class="number-field"><input id="people-input" type="number" min="6" max="300" step="1" value="14" required><span>人</span></span><small>6–300 人</small></label>
           <label class="field">作业次数 <span class="number-field"><input id="rounds-input" type="number" min="1" max="30" step="1" value="3" required><span>次</span></span><small>1–30 次</small></label>
+          <label class="field size-field">期望每组人数 <span class="number-field"><input id="size-input" type="number" min="2" max="300" step="1" placeholder="不限" aria-describedby="size-hint size-preview"><span>人</span></span><small id="size-hint">取最接近的均匀分组</small></label>
           <div class="solve-actions"><button class="button button-dark" type="submit" id="solve-button">求解并比较两种方案 <span aria-hidden="true">↗</span></button><button class="button button-outline" type="button" id="cancel-button" hidden>停止求解</button><p class="small-note">在当前浏览器计算，通常需要几秒</p></div>
         </div>
-        <details class="round-settings" id="round-settings"><summary>分别设置每次作业的组数 <span class="small-note">默认自动选择</span><span aria-hidden="true">＋</span></summary><p class="small-note">留空表示自动。组数可以不同；设定组数后，每组人数会尽可能均匀。</p><div id="round-inputs" class="round-inputs"></div><p id="group-range" class="small-note"></p></details>
+        <div class="size-planning" aria-labelledby="size-options-title"><div class="size-options-heading"><span id="size-options-title">可以这样分</span><button id="clear-size" class="button button-plain" type="button">不限每组人数</button></div><div id="size-options" class="size-options" role="group" aria-label="推荐的每组人数"></div><p id="size-preview" class="small-note" aria-live="polite"></p><p id="size-override" class="small-note"></p><button id="auto-all-rounds" class="button button-plain" type="button" hidden>将各次组数全部改为自动</button></div>
+        <details class="round-settings" id="round-settings"><summary>分别设置每次作业的组数 <span class="small-note">手动组数优先</span><span aria-hidden="true">＋</span></summary><p class="small-note">留空时按上方期望人数自动选择；期望也留空时不限制小组规模。填写组数会覆盖这次作业的期望人数，各次可以不同。</p><div id="round-inputs" class="round-inputs"></div><p id="group-range" class="small-note"></p></details>
         <fieldset class="type-settings">
           <legend>有需要考虑的类型或水平吗？</legend>
           <div class="type-policy" role="group" aria-label="类型分组方式">
@@ -83,7 +85,7 @@
           <span id="selection-announcement" class="sr-only" aria-live="polite"></span>
         </aside>
       </div>
-      <details class="explanation"><summary>这份结果有多好？<span aria-hidden="true">＋</span></summary><p id="proof-description"></p><p id="search-description"></p><p>机会均衡优先提高“认识同学最少的人”的人数，其次增加全班不同搭档；整体覆盖反过来。两者最后都尽量缩小个人覆盖差异。重复碰面不作为首要目标，因为大组即使有重复，也可能让大家认识更多新同学。</p><p>“不同搭档”按两人的组合计数；“重复碰面”统计同一对人在第二次及之后的同组次数。“新队友”按作业的先后顺序计算。</p><p>自动模式会比较不同组数。只追求认识更多人时，可能偏向较少的大组；如果每组人数影响作业分工，可在上方固定各次组数。</p></details>
+      <details class="explanation"><summary>这份结果有多好？<span aria-hidden="true">＋</span></summary><p id="proof-description"></p><p id="search-description"></p><p>机会均衡优先提高“认识同学最少的人”的人数，其次增加全班不同搭档；整体覆盖反过来。两者最后都尽量缩小个人覆盖差异。重复碰面不作为首要目标，因为大组即使有重复，也可能让大家认识更多新同学。</p><p>“不同搭档”按两人的组合计数；“重复碰面”统计同一对人在第二次及之后的同组次数。“新队友”按作业的先后顺序计算。</p><p>期望人数留空时，自动模式可能偏向较少的大组，以增加合作覆盖。填写期望后，先选平均人数最接近的合法安排，再优化新队友；单次填写的组数优先。</p></details>
     </section>
     <p id="status" class="status" role="status" aria-live="polite"></p>
     <noscript><p class="input-error">请启用 JavaScript，以使用自动求解和分组功能。</p></noscript>

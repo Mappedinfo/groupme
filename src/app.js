@@ -1,7 +1,7 @@
 import {
   LIMITS, validateConfig, validateSchedule, analyzeSchedule, evaluateProof,
-  compareMetrics, parseNames, defaultNames,
-} from './grouping.js?v=types-1';
+  compareMetrics, parseNames, defaultNames, getSizeOptions, getAutomaticGroupCounts,
+} from './grouping.js?v=size-1';
 
 const $ = selector => document.querySelector(selector);
 const objectives = ['fair', 'coverage'];
@@ -41,6 +41,7 @@ function ensureNames(people) {
   for (let i = state.names.length; i < people; i++) state.names.push(`${i + 1}号`);
 }
 function draftPeople() { return Number($('#people-input').value); }
+function preferredSize() { return $('#size-input').value.trim() === '' ? null : Number($('#size-input').value); }
 function validPeople(people) { return Number.isInteger(people) && people >= LIMITS.minPeople && people <= LIMITS.maxPeople; }
 function typeMode() { return $('input[name="type-mode"]:checked').value; }
 function typeOf(id, result = currentResult()) { return result?.config.types?.[id - 1] ?? '未分类'; }
@@ -60,7 +61,7 @@ function save(message = '') {
       if (result) savedResults[goal] = { config: result.config, assignments: result.assignments, search: result.search };
     }
     snapshotDraft();
-    const draft = { people: draftPeople(), rounds: Number($('#rounds-input').value), groupCounts: roundDraft, typeMode: typeMode() };
+    const draft = { people: draftPeople(), rounds: Number($('#rounds-input').value), groupCounts: roundDraft, typeMode: typeMode(), preferredSize: preferredSize() };
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, ...state, typeDraft, draft, results: savedResults }));
     if (message) announce(message);
   } catch { announce(`${message ? message + ' ' : ''}浏览器无法保存设置，刷新后可能丢失；本次仍可使用和复制。`); }
@@ -93,7 +94,7 @@ function restore() {
       typeDraft = Array.isArray(saved.typeDraft) && saved.typeDraft.length <= LIMITS.maxPeople && saved.typeDraft.every(type => typeof type === 'string' && !/[\r\n]/.test(type) && [...type].length <= 20)
         ? saved.typeDraft.map(type => type.trim() || '未分类') : [...config.types];
       const draft = saved.draft;
-      if (draft && validPeople(draft.people) && Number.isInteger(draft.rounds) && draft.rounds >= 1 && draft.rounds <= LIMITS.maxRounds && Object.hasOwn(typeTitles, draft.typeMode) && Array.isArray(draft.groupCounts) && draft.groupCounts.length <= LIMITS.maxRounds && draft.groupCounts.every(count => count === null || Number.isInteger(count))) restoredDraft = draft;
+      if (draft && validPeople(draft.people) && Number.isInteger(draft.rounds) && draft.rounds >= 1 && draft.rounds <= LIMITS.maxRounds && Object.hasOwn(typeTitles, draft.typeMode) && Array.isArray(draft.groupCounts) && draft.groupCounts.length <= LIMITS.maxRounds && draft.groupCounts.every(count => count === null || Number.isInteger(count))) restoredDraft = { ...draft, preferredSize: Number.isFinite(draft.preferredSize) ? draft.preferredSize : null };
       if (!state.results[state.objective]) state.objective = results.fair ? 'fair' : 'coverage';
       if (!Object.keys(results).length) state.objective = 'fair';
       return;
@@ -115,11 +116,81 @@ function restore() {
   } catch { announce('保存的设置无法读取，已恢复默认设置，可以重新填写姓名。'); }
 }
 function sameSettings(a, b) {
-  return a.people === b.people && a.rounds === b.rounds && JSON.stringify(a.groupCounts) === JSON.stringify(b.groupCounts)
+  const same = a.people === b.people && a.rounds === b.rounds && JSON.stringify(a.groupCounts) === JSON.stringify(b.groupCounts)
     && (a.typeMode ?? 'off') === (b.typeMode ?? 'off')
     && ((a.typeMode ?? 'off') === 'off' || JSON.stringify(a.types) === JSON.stringify(b.types));
+  if (!same) return false;
+  return a.groupCounts.every(count => count !== null) || JSON.stringify(getAutomaticGroupCounts(a)) === JSON.stringify(getAutomaticGroupCounts(b));
+}
+function sizeDescription(sizes) {
+  const counts = new Map();
+  sizes.forEach(size => counts.set(size, (counts.get(size) ?? 0) + 1));
+  if (counts.size === 1) return `每组 ${sizes[0]} 人`;
+  return [...counts].sort(([a], [b]) => b - a).map(([size, count]) => `${count} 组 ${size} 人`).join(' + ');
+}
+function sizeSettingDescription(config) {
+  if (config.preferredSize == null) return '每组人数不限';
+  return `期望每组 ${config.preferredSize} 人${config.groupCounts.some(count => count !== null) ? '（手动组数优先）' : ''}`;
+}
+function renderSizeSettings() {
+  const container = $('#size-options'); container.replaceChildren();
+  const preview = $('#size-preview');
+  const override = $('#size-override'); override.textContent = '';
+  $('#auto-all-rounds').hidden = true;
+  const people = draftPeople();
+  const target = preferredSize();
+  $('#clear-size').disabled = Boolean(activeJob) || target === null;
+  if (!validPeople(people)) { preview.textContent = '填写 6–300 人后，会自动推荐均匀分组。'; return; }
+  ensureTypes(people);
+  const base = { people, rounds: 1, typeMode: typeMode(), types: typeDraft.slice(0, people), preferredSize: target };
+  let options;
+  try { options = getSizeOptions(base); }
+  catch (error) { preview.textContent = error.message; return; }
+  const candidates = new Map();
+  // 按真实候选组数去重；点击只改变期望值，保留逐次手动组数。
+  for (const value of [...new Set([target, 4, 3, 5, 6, 2].filter(value => value !== null))]) {
+    const candidateConfig = { ...base, preferredSize: value };
+    const counts = getAutomaticGroupCounts(candidateConfig);
+    const key = counts.join(',');
+    const choices = getSizeOptions(candidateConfig).filter(option => counts.includes(option.groupCount));
+    const previous = candidates.get(key);
+    if (!previous || (previous.value !== target && choices[0].distance < previous.choices[0].distance)) candidates.set(key, { value, choices });
+  }
+  [...candidates.values()].sort((a, b) => Number(b.value === target) - Number(a.value === target) || Math.abs(a.value - 4) - Math.abs(b.value - 4)).slice(0, 4).sort((a, b) => a.value - b.value).forEach(({ value, choices }) => {
+    const button = node('button', 'size-recommendation'); button.type = 'button';
+    button.setAttribute('aria-pressed', String(target === value));
+    button.disabled = Boolean(activeJob);
+    button.append(node('strong', '', `期望 ${value} 人 / 组`));
+    choices.forEach(option => button.append(node('span', '', `${option.groupCount} 组 · ${sizeDescription(option.sizes)}`)));
+    button.addEventListener('click', () => {
+      $('#size-input').value = value; $('#config-error').textContent = '';
+      renderSizeSettings(); save();
+    });
+    container.append(button);
+  });
+  const rounds = Number($('#rounds-input').value);
+  snapshotDraft();
+  const counts = roundDraft.slice(0, Number.isInteger(rounds) && rounds >= 1 && rounds <= LIMITS.maxRounds ? rounds : 0);
+  const manual = counts.map((count, index) => count === null || count === undefined ? null : index + 1).filter(Boolean);
+  const autoCount = Math.max(0, rounds - manual.length);
+  const allManual = Number.isInteger(rounds) && rounds >= 1 && rounds <= LIMITS.maxRounds && autoCount === 0;
+  if (allManual) {
+    preview.textContent = '所有作业都已指定组数，当前期望人数不会改变分组规模；将某次组数留空后才会应用。';
+  } else if (target === null) {
+    preview.textContent = '当前不限制每组人数，自动作业会搜索所有合法组数。点击推荐或填写期望人数，可以控制小组规模。';
+  } else {
+    const allowed = getAutomaticGroupCounts(base);
+    const chosen = options.filter(option => allowed.includes(option.groupCount));
+    preview.textContent = `自动作业最接近 ${target} 人 / 组的安排：${chosen.map(option => `${option.groupCount} 组（${sizeDescription(option.sizes)}）`).join(' 或 ')}。${chosen.length > 1 ? '同样接近，可在这些安排中优化新队友。' : '先满足这个规模，再优化新队友。'}${chosen.some(option => option.distance > 1) ? '受当前人数、至少 3 组和类型规则限制，实际人数与期望有差距。' : ''}`;
+  }
+  if (manual.length) {
+    override.textContent = `作业 ${manual.join('、')} 使用各自填写的组数，优先于上方期望；推荐按钮不会覆盖这些设置。`;
+    $('#auto-all-rounds').hidden = false;
+    $('#auto-all-rounds').disabled = Boolean(activeJob);
+  }
 }
 function renderTypeSettings() {
+  renderSizeSettings();
   const people = draftPeople();
   const valid = validPeople(people);
   const mode = typeMode();
@@ -168,6 +239,7 @@ function fillSettings() {
   const settings = restoredDraft ?? state.config;
   $('#people-input').value = settings.people;
   $('#rounds-input').value = settings.rounds;
+  $('#size-input').value = settings.preferredSize ?? '';
   $('#round-inputs').replaceChildren();
   roundDraft = [...settings.groupCounts];
   renderRoundInputs();
@@ -182,7 +254,7 @@ function readConfig() {
   const rounds = Number($('#rounds-input').value);
   const seed = globalThis.crypto?.getRandomValues ? crypto.getRandomValues(new Uint32Array(1))[0] : Date.now() >>> 0;
   if (validPeople(people)) ensureTypes(people);
-  return validateConfig({ people, rounds, groupCounts: Array.from({ length: Number.isInteger(rounds) && rounds > 0 && rounds <= LIMITS.maxRounds ? rounds : 0 }, (_, i) => roundDraft[i] ?? null), typeMode: typeMode(), types: typeDraft.slice(0, people), objective: state.objective, seed });
+  return validateConfig({ people, rounds, groupCounts: Array.from({ length: Number.isInteger(rounds) && rounds > 0 && rounds <= LIMITS.maxRounds ? rounds : 0 }, (_, i) => roundDraft[i] ?? null), typeMode: typeMode(), types: typeDraft.slice(0, people), preferredSize: preferredSize(), objective: state.objective, seed });
 }
 function setBusy(busy) {
   $('#solve-button').disabled = busy;
@@ -191,6 +263,9 @@ function setBusy(busy) {
   $('#cancel-button').hidden = !busy;
   $('#solve-progress').hidden = !busy;
   document.querySelectorAll('#settings-form input, #settings-form select').forEach(input => { input.disabled = busy; });
+  document.querySelectorAll('.size-recommendation').forEach(button => { button.disabled = busy; });
+  $('#clear-size').disabled = busy || preferredSize() === null;
+  $('#auto-all-rounds').disabled = busy;
   $('#settings').setAttribute('aria-busy', String(busy));
 }
 function resultQuality(result) { return result.proof.optimal ? '已证明覆盖目标最优' : '本次找到的最好方案 · 未证明全局最优'; }
@@ -215,7 +290,7 @@ function renderComparison() {
     }
   }
   if (Object.keys(state.results).length) {
-    $('#result-context').textContent = `当前结果：${state.config.people} 人 · ${state.config.rounds} 次作业 · ${typeTitles[state.config.typeMode ?? 'off']} · 两种方案使用相同约束`;
+    $('#result-context').textContent = `当前结果：${state.config.people} 人 · ${state.config.rounds} 次作业 · ${sizeSettingDescription(state.config)} · ${typeTitles[state.config.typeMode ?? 'off']}`;
   }
   const { fair, coverage } = state.results;
   $('#comparison-note').textContent = fair && coverage && fair.metrics.uniquePairs === coverage.metrics.uniquePairs && fair.metrics.minimumTeammates === coverage.metrics.minimumTeammates
@@ -343,7 +418,7 @@ function settleJob(job) {
   for (const goal of objectives) {
     for (const candidate of candidates) {
       if (!next[goal] || compareMetrics(candidate.metrics, next[goal].metrics, goal) > 0) {
-        const config = { ...candidate.config, types: [...job.config.types], objective:goal };
+        const config = { ...candidate.config, types: [...job.config.types], preferredSize: job.config.preferredSize, objective:goal };
         next[goal] = { ...candidate, config, proof:evaluateProof(candidate.assignments, config) };
       }
     }
@@ -370,7 +445,7 @@ function startSolve() {
   $('#progress-text').textContent = `正在为 ${config.people} 人、${config.rounds} 次作业比较两种目标；下方保留上次结果。`;
   for (const goal of objectives) {
     try {
-      const worker = new Worker(new URL('./solver-worker.js?v=types-1', import.meta.url), { type:'module' });
+      const worker = new Worker(new URL('./solver-worker.js?v=size-1', import.meta.url), { type:'module' });
       job.workers.push(worker);
       worker.onmessage = ({ data }) => {
         if (activeJob !== job || data.requestId !== `${job.id}-${goal}` || job.finished.has(goal)) return;
@@ -411,7 +486,7 @@ function cancelSolve() {
 }
 function rosterText() {
   const result = currentResult();
-  const lines = [`Groupme · ${state.config.people} 人 / ${state.config.rounds} 次作业`, `目标：${titles[state.objective]}`, `类型方式：${typeTitles[result.config.typeMode]}`, resultQuality(result), ''];
+  const lines = [`Groupme · ${state.config.people} 人 / ${state.config.rounds} 次作业`, `目标：${titles[state.objective]}`, `小组规模：${sizeSettingDescription(result.config)}`, `类型方式：${typeTitles[result.config.typeMode]}`, resultQuality(result), ''];
   const rosterName = id => result.config.typeMode === 'off' ? displayName(id) : `${displayName(id)}【${typeOf(id, result)}】`;
   result.assignments.forEach((groups, round) => {
     lines.push(`作业 ${round+1}（${groups.length} 组）`);
@@ -424,7 +499,15 @@ function rosterText() {
 }
 
 $('#people-input').addEventListener('input', () => { renderRoundInputs(); renderTypeSettings(); });
-$('#rounds-input').addEventListener('input', renderRoundInputs);
+$('#rounds-input').addEventListener('input', () => { renderRoundInputs(); renderSizeSettings(); });
+$('#size-input').addEventListener('input', () => { $('#config-error').textContent = ''; renderSizeSettings(); });
+$('#round-inputs').addEventListener('input', renderSizeSettings);
+$('#clear-size').addEventListener('click', () => { $('#size-input').value = ''; $('#config-error').textContent = ''; renderSizeSettings(); save(); });
+$('#auto-all-rounds').addEventListener('click', () => {
+  document.querySelectorAll('[data-round-input]').forEach(input => { input.value = ''; });
+  snapshotDraft(); renderSizeSettings(); $('#config-error').textContent = '';
+  save('各次组数已改为自动。重新求解后应用当前期望人数。');
+});
 $('#settings-form').addEventListener('change', () => { renderTypeSettings(); save(); });
 document.querySelectorAll('input[name="type-mode"]').forEach(input => input.addEventListener('change', () => { $('#config-error').textContent = ''; }));
 $('#settings-form').addEventListener('submit', event => { event.preventDefault(); startSolve(); });
