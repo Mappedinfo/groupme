@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="14 人、两次作业，队友不重样。比较分组方案、填写姓名、随机打散，一键复制分组名单。">
+  <meta name="color-scheme" content="light">
+  <title>Groupme · 队友不重样</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./src/style.css">
+  <script type="module" src="./src/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">跳到分组</a>
+  <header class="site-header shell">
+    <a class="brand" href="./" aria-label="Groupme 首页"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>groupme<span class="brand-period">.</span></a>
+    <span class="header-note">一起完成，也一起认识。</span>
+  </header>
+  <main class="shell">
+    <section class="intro" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">14 个人 <span aria-hidden="true">/</span> 2 次作业</p>
+        <h1 id="page-title">两次作业，<br>队友不重样。</h1>
+        <p class="intro-copy">把熟悉的组合打散，让每一次合作都有新伙伴。</p>
+      </div>
+      <dl class="stats" aria-label="当前方案统计">
+        <div><dt>重复搭档</dt><dd><span id="repeat-count">—</span><small>对</small></dd></div>
+        <div><dt>不同搭档</dt><dd><span id="pair-count">—</span><small>对</small></dd></div>
+      </dl>
+    </section>
+
+    <section id="workspace" aria-label="分组工作区">
+      <div class="workspace-toolbar">
+        <div class="plan-switch" role="group" aria-label="选择两次作业的组数">
+          <button type="button" data-plan="four" aria-pressed="true">4 组 <span aria-hidden="true">→</span> 4 组</button>
+          <button type="button" data-plan="mixed" aria-pressed="false">4 组 <span aria-hidden="true">→</span> 5 组</button>
+          <button type="button" data-plan="five" aria-pressed="false">5 组 <span aria-hidden="true">→</span> 5 组</button>
+        </div>
+        <div class="toolbar-actions">
+          <button class="button button-plain" type="button" id="edit-names"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 3a2.1 2.1 0 0 1 3 3L8 17l-4 1 1-4L16 3Z M4 22h16"/></svg>填写姓名</button>
+          <button class="button button-dark" type="button" id="shuffle"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h3c5 0 7 12 12 12h3m-4-4 4 4-4 4M3 18h3c2 0 4-2 6-6s4-6 6-6h3m-4-4 4 4-4 4"/></svg>重新打散</button>
+        </div>
+      </div>
+      <p class="plan-note" id="plan-note"></p>
+
+      <div class="explorer">
+        <section class="matrix-section" aria-labelledby="matrix-title">
+          <div class="section-heading"><h2 id="matrix-title">分组交叉图</h2><span class="small-note">点击一位同学，查看队友</span></div>
+          <div class="matrix-axis">作业二 · 按列分组 <span aria-hidden="true">↓</span></div>
+          <div id="matrix" class="matrix" role="group" aria-label="每行是作业一的一组，每列是作业二的一组"></div>
+          <div class="legend"><span><i class="legend-dot first"></i>作业一队友</span><span><i class="legend-dot second"></i>作业二队友</span><span><i class="legend-dot selected"></i>当前同学</span></div>
+        </section>
+
+        <aside class="person-panel" aria-labelledby="person-title">
+          <p class="eyebrow">TA 的两次合作</p>
+          <div class="person-heading"><span class="person-number" id="person-number" aria-hidden="true">01</span><h2 id="person-title"></h2></div>
+          <p class="person-summary" id="person-summary"></p>
+          <div class="teammate-section"><h3><i class="legend-dot first"></i>作业一 <span id="first-group"></span></h3><div class="mate-list" id="first-mates"></div></div>
+          <div class="teammate-section"><h3><i class="legend-dot second"></i>作业二 <span id="second-group"></span></h3><div class="mate-list" id="second-mates"></div></div>
+          <p class="person-footnote">换了小组，也换了所有队友。</p>
+          <span class="sr-only" id="selection-announcement" aria-live="polite"></span>
+        </aside>
+      </div>
+
+      <section class="rosters" aria-labelledby="roster-title">
+        <div class="section-heading roster-heading"><div><h2 id="roster-title">把分组带走</h2><p class="small-note">按名单集合，就可以开始了。</p></div><button type="button" class="button button-outline" id="copy-rosters"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>复制分组名单</button></div>
+        <div class="roster-columns"><div><h3><i class="legend-dot first"></i>作业一 <span id="first-sizes"></span></h3><div id="first-roster"></div></div><div><h3><i class="legend-dot second"></i>作业二 <span id="second-sizes"></span></h3><div id="second-roster"></div></div></div>
+      </section>
+      <details class="how-it-works"><summary>为什么不会重复队友？<span aria-hidden="true">＋</span></summary><p>交叉图中的每行是第一次作业的一组，每列是第二次作业的一组。每个交叉格最多只有一人，因此第一次同组的任意两人，第二次一定分在不同组。重新打散只交换同学的位置，仍然保持零重复。</p><p id="distribution"></p><p>“不同搭档”按两人的组合计数；交换姓名位置不会改变总数。这里只比较上面三种人数较均衡的方案。</p></details>
+    </section>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <noscript><p class="no-script">请启用 JavaScript，以查看和调整分组。</p></noscript>
+  </main>
+  <footer class="site-footer shell"><span>Groupme · 好的合作，从重新分组开始。</span><div><span>姓名仅保存在当前浏览器</span><a href="https://github.com/mappedinfo/groupme" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a></div></footer>
+
+  <dialog id="names-dialog" aria-labelledby="names-title">
+    <form id="names-form">
+      <div class="dialog-heading"><h2 id="names-title">认识一下这 14 位同学</h2><button class="icon-button" type="button" id="close-names" aria-label="关闭姓名编辑">×</button></div>
+      <p class="dialog-copy">每行一位，共 14 位。姓名只在你的浏览器中保存。</p>
+      <label for="names-input" class="sr-only">14 位同学的姓名，每行一位</label>
+      <textarea id="names-input" rows="14" maxlength="600" spellcheck="false" aria-describedby="names-count names-error"></textarea>
+      <div class="input-meta"><span id="names-count">14 / 14 位</span><span>每个姓名最多 20 个字符</span></div>
+      <p id="names-error" class="input-error" role="alert"></p>
+      <div class="dialog-actions"><button type="button" class="button button-plain" id="restore-numbers">使用编号</button><button type="submit" class="button button-dark">保存姓名</button></div>
+    </form>
+  </dialog>
+  <dialog id="copy-dialog" aria-labelledby="copy-title"><div class="dialog-heading"><h2 id="copy-title">复制分组名单</h2><button class="icon-button" id="close-copy" type="button" aria-label="关闭分组名单">×</button></div><p class="dialog-copy">浏览器未能自动复制。请选中下方文字复制。</p><label for="copy-text" class="sr-only">分组名单</label><textarea id="copy-text" rows="15" readonly></textarea></dialog>
+</body>
+</html>

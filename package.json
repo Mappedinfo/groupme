@@ -1,0 +1,13 @@
+{
+  "name": "groupme",
+  "version": "1.0.0",
+  "private": true,
+  "description": "14 人、两次作业，队友不重样。",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "start": "node scripts/serve.js"
+  },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}
