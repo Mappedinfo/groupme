@@ -4,87 +4,80 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#ffffff">
-  <meta name="description" content="14 人、两次作业，队友不重样。比较分组方案、填写姓名、随机打散，一键复制分组名单。">
   <meta name="color-scheme" content="light">
-  <title>Groupme · 队友不重样</title>
+  <meta name="description" content="自由设置人数、多次作业和各次组数，比较机会均衡与整体覆盖两种自动分组方案。">
+  <title>Groupme · 多认识一些新同学</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./src/style.css">
   <script type="module" src="./src/app.js"></script>
 </head>
 <body>
-  <a class="skip-link" href="#workspace">跳到分组</a>
+  <a class="skip-link" href="#settings">跳到分组设置</a>
   <header class="site-header shell">
     <a class="brand" href="./" aria-label="Groupme 首页"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>groupme<span class="brand-period">.</span></a>
     <span class="header-note">一起完成，也一起认识。</span>
   </header>
   <main class="shell">
-    <section class="intro" aria-labelledby="page-title">
-      <div>
-        <p class="eyebrow">14 个人 <span aria-hidden="true">/</span> 2 次作业</p>
-        <h1 id="page-title">两次作业，<br>队友不重样。</h1>
-        <p class="intro-copy">把熟悉的组合打散，让每一次合作都有新伙伴。</p>
-      </div>
-      <dl class="stats" aria-label="当前方案统计">
-        <div><dt>重复搭档</dt><dd><span id="repeat-count">—</span><small>对</small></dd></div>
-        <div><dt>不同搭档</dt><dd><span id="pair-count">—</span><small>对</small></dd></div>
-      </dl>
+    <section class="intro">
+      <p class="eyebrow">多人 · 多次 · 多一些新伙伴</p>
+      <h1>每一次分组，<br>多认识一些新同学。</h1>
+      <p class="intro-copy">人数和作业次数由你决定。把合作的机会，安排得更好一点。</p>
     </section>
 
-    <section id="workspace" aria-label="分组工作区">
-      <div class="workspace-toolbar">
-        <div class="plan-switch" role="group" aria-label="选择两次作业的组数">
-          <button type="button" data-plan="four" aria-pressed="true">4 组 <span aria-hidden="true">→</span> 4 组</button>
-          <button type="button" data-plan="mixed" aria-pressed="false">4 组 <span aria-hidden="true">→</span> 5 组</button>
-          <button type="button" data-plan="five" aria-pressed="false">5 组 <span aria-hidden="true">→</span> 5 组</button>
+    <section id="settings" aria-labelledby="settings-title">
+      <div class="section-heading"><h2 id="settings-title">先定下这次的安排</h2><span class="small-note">每组至少 2 人 · 每次至少 3 组 · 人数差至多 1</span></div>
+      <form id="settings-form" novalidate>
+        <div class="settings-row">
+          <label class="field">总人数 <span class="number-field"><input id="people-input" type="number" min="6" max="300" step="1" value="14" required><span>人</span></span><small>6–300 人</small></label>
+          <label class="field">作业次数 <span class="number-field"><input id="rounds-input" type="number" min="1" max="30" step="1" value="3" required><span>次</span></span><small>1–30 次</small></label>
+          <div class="solve-actions"><button class="button button-dark" type="submit" id="solve-button">求解并比较两种方案 <span aria-hidden="true">↗</span></button><button class="button button-outline" type="button" id="cancel-button" hidden>停止求解</button><p class="small-note">在当前浏览器计算，通常需要几秒</p></div>
         </div>
-        <div class="toolbar-actions">
-          <button class="button button-plain" type="button" id="edit-names"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M16 3a2.1 2.1 0 0 1 3 3L8 17l-4 1 1-4L16 3Z M4 22h16"/></svg>填写姓名</button>
-          <button class="button button-dark" type="button" id="shuffle"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h3c5 0 7 12 12 12h3m-4-4 4 4-4 4M3 18h3c2 0 4-2 6-6s4-6 6-6h3m-4-4 4 4-4 4"/></svg>重新打散</button>
-        </div>
+        <details class="round-settings" id="round-settings"><summary>分别设置每次作业的组数 <span class="small-note">默认自动选择</span><span aria-hidden="true">＋</span></summary><p class="small-note">留空表示自动。组数可以不同；设定组数后，每组人数会尽可能均匀。</p><div id="round-inputs" class="round-inputs"></div><p id="group-range" class="small-note"></p></details>
+        <p id="config-error" class="input-error" role="alert"></p>
+      </form>
+      <div id="solve-progress" class="solve-progress" hidden><span class="progress-dot" aria-hidden="true"></span><span id="progress-text" role="status" aria-live="polite">正在搜索更好的组合…</span></div>
+    </section>
+
+    <section class="comparison-section" aria-labelledby="comparison-title">
+      <div class="section-heading"><div><h2 id="comparison-title">两种目标，一起看看</h2><p id="result-context" class="small-note">使用同样的安排，分别寻找两种方案。</p></div></div>
+      <div class="comparison-grid" role="group" aria-label="选择要查看的优化目标">
+        <button id="fair-card" class="objective-card" type="button" data-objective="fair" aria-pressed="true" disabled><span class="objective-heading"><span>机会均衡</span><span class="objective-index">01</span></span><span class="objective-copy">先照顾认识同学最少的人，再增加全班不同搭档。</span><span class="objective-numbers" id="fair-numbers">等待求解</span><span class="objective-quality" id="fair-quality"> </span></button>
+        <button id="coverage-card" class="objective-card" type="button" data-objective="coverage" aria-pressed="false" disabled><span class="objective-heading"><span>整体覆盖</span><span class="objective-index">02</span></span><span class="objective-copy">先增加全班不同搭档，再兼顾每个人的机会。</span><span class="objective-numbers" id="coverage-numbers">等待求解</span><span class="objective-quality" id="coverage-quality"> </span></button>
       </div>
-      <p class="plan-note" id="plan-note"></p>
+      <p class="comparison-note small-note" id="comparison-note">两种目标可能找到同样好的方案。重复合作不一定能完全避免。</p>
+    </section>
 
+    <section id="results" class="results" hidden aria-label="求解结果">
+      <div class="result-toolbar"><div><h2>看看这次怎么组队</h2><p class="small-note" id="result-detail"></p></div><div class="toolbar-actions"><button class="button button-plain" type="button" id="edit-names">填写姓名</button><button class="button button-outline" type="button" id="copy-rosters">复制全部名单</button></div></div>
+      <div class="result-metrics" aria-label="方案统计"><span>每人认识 <strong id="teammate-range"></strong> 位</span><span>全班覆盖 <strong id="coverage-value"></strong></span><span>重复碰面 <strong id="repeat-count"></strong> 对次</span></div>
       <div class="explorer">
-        <section class="matrix-section" aria-labelledby="matrix-title">
-          <div class="section-heading"><h2 id="matrix-title">分组交叉图</h2><span class="small-note">点击一位同学，查看队友</span></div>
-          <div class="matrix-axis">作业二 · 按列分组 <span aria-hidden="true">↓</span></div>
-          <div id="matrix" class="matrix" role="group" aria-label="每行是作业一的一组，每列是作业二的一组"></div>
-          <div class="legend"><span><i class="legend-dot first"></i>作业一队友</span><span><i class="legend-dot second"></i>作业二队友</span><span><i class="legend-dot selected"></i>当前同学</span></div>
+        <section class="groups-section" aria-labelledby="groups-title">
+          <div class="groups-toolbar"><h3 id="groups-title"><label for="round-select">查看作业</label></h3><select id="round-select"></select></div>
+          <p id="round-summary" class="small-note"></p>
+          <div id="groups" class="groups-grid"></div>
+          <div class="legend"><span><i class="legend-dot selected"></i>当前同学</span><span><i class="legend-dot fresh"></i>本次新队友</span><span><i class="legend-dot known"></i>本次曾合作队友</span></div>
         </section>
-
         <aside class="person-panel" aria-labelledby="person-title">
-          <p class="eyebrow">TA 的两次合作</p>
-          <div class="person-heading"><span class="person-number" id="person-number" aria-hidden="true">01</span><h2 id="person-title"></h2></div>
-          <p class="person-summary" id="person-summary"></p>
-          <div class="teammate-section"><h3><i class="legend-dot first"></i>作业一 <span id="first-group"></span></h3><div class="mate-list" id="first-mates"></div></div>
-          <div class="teammate-section"><h3><i class="legend-dot second"></i>作业二 <span id="second-group"></span></h3><div class="mate-list" id="second-mates"></div></div>
-          <p class="person-footnote">换了小组，也换了所有队友。</p>
-          <span class="sr-only" id="selection-announcement" aria-live="polite"></span>
+          <label class="eyebrow" for="person-select">每个人的合作机会</label>
+          <select id="person-select"></select>
+          <h3 id="person-title" class="sr-only">个人合作详情</h3>
+          <p class="person-summary"><strong id="person-count"></strong><span id="person-total"></span></p>
+          <div class="coverage-track" aria-hidden="true"><div id="person-bar"></div></div>
+          <p id="person-caption" class="small-note"></p>
+          <div class="teammate-section"><h3 id="mate-title"></h3><div class="mate-list" id="mate-list"></div></div>
+          <details class="person-details"><summary>查看每次合作</summary><ol id="person-history"></ol></details>
+          <details class="person-details"><summary id="unmet-title"></summary><div id="unmet-list" class="unmet-list"></div></details>
+          <span id="selection-announcement" class="sr-only" aria-live="polite"></span>
         </aside>
       </div>
-
-      <section class="rosters" aria-labelledby="roster-title">
-        <div class="section-heading roster-heading"><div><h2 id="roster-title">把分组带走</h2><p class="small-note">按名单集合，就可以开始了。</p></div><button type="button" class="button button-outline" id="copy-rosters"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>复制分组名单</button></div>
-        <div class="roster-columns"><div><h3><i class="legend-dot first"></i>作业一 <span id="first-sizes"></span></h3><div id="first-roster"></div></div><div><h3><i class="legend-dot second"></i>作业二 <span id="second-sizes"></span></h3><div id="second-roster"></div></div></div>
-      </section>
-      <details class="how-it-works"><summary>为什么不会重复队友？<span aria-hidden="true">＋</span></summary><p>交叉图中的每行是第一次作业的一组，每列是第二次作业的一组。每个交叉格最多只有一人，因此第一次同组的任意两人，第二次一定分在不同组。重新打散只交换同学的位置，仍然保持零重复。</p><p id="distribution"></p><p>“不同搭档”按两人的组合计数；交换姓名位置不会改变总数。这里只比较上面三种人数较均衡的方案。</p></details>
+      <details class="explanation"><summary>这份结果有多好？<span aria-hidden="true">＋</span></summary><p id="proof-description"></p><p id="search-description"></p><p>机会均衡优先提高“认识同学最少的人”的人数，其次增加全班不同搭档；整体覆盖反过来。两者最后都尽量缩小个人覆盖差异。重复碰面不作为首要目标，因为大组即使有重复，也可能让大家认识更多新同学。</p><p>“不同搭档”按两人的组合计数；“重复碰面”统计同一对人在第二次及之后的同组次数。“新队友”按作业的先后顺序计算。</p><p>自动模式会比较不同组数。只追求认识更多人时，可能偏向较少的大组；如果每组人数影响作业分工，可在上方固定各次组数。</p></details>
     </section>
     <p id="status" class="status" role="status" aria-live="polite"></p>
-    <noscript><p class="no-script">请启用 JavaScript，以查看和调整分组。</p></noscript>
+    <noscript><p class="input-error">请启用 JavaScript，以使用自动求解和分组功能。</p></noscript>
   </main>
-  <footer class="site-footer shell"><span>Groupme · 好的合作，从重新分组开始。</span><div><span>姓名仅保存在当前浏览器</span><a href="https://github.com/mappedinfo/groupme" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a></div></footer>
+  <footer class="site-footer shell"><span>Groupme · 好的合作，从重新分组开始。</span><div><span>姓名和分组只保存在当前浏览器</span><a href="https://github.com/Mappedinfo/groupme" target="_blank" rel="noopener noreferrer">GitHub ↗</a></div></footer>
 
-  <dialog id="names-dialog" aria-labelledby="names-title">
-    <form id="names-form">
-      <div class="dialog-heading"><h2 id="names-title">认识一下这 14 位同学</h2><button class="icon-button" type="button" id="close-names" aria-label="关闭姓名编辑">×</button></div>
-      <p class="dialog-copy">每行一位，共 14 位。姓名只在你的浏览器中保存。</p>
-      <label for="names-input" class="sr-only">14 位同学的姓名，每行一位</label>
-      <textarea id="names-input" rows="14" maxlength="600" spellcheck="false" aria-describedby="names-count names-error"></textarea>
-      <div class="input-meta"><span id="names-count">14 / 14 位</span><span>每个姓名最多 20 个字符</span></div>
-      <p id="names-error" class="input-error" role="alert"></p>
-      <div class="dialog-actions"><button type="button" class="button button-plain" id="restore-numbers">使用编号</button><button type="submit" class="button button-dark">保存姓名</button></div>
-    </form>
-  </dialog>
-  <dialog id="copy-dialog" aria-labelledby="copy-title"><div class="dialog-heading"><h2 id="copy-title">复制分组名单</h2><button class="icon-button" id="close-copy" type="button" aria-label="关闭分组名单">×</button></div><p class="dialog-copy">浏览器未能自动复制。请选中下方文字复制。</p><label for="copy-text" class="sr-only">分组名单</label><textarea id="copy-text" rows="15" readonly></textarea></dialog>
+  <dialog id="names-dialog" aria-labelledby="names-title"><form id="names-form"><div class="dialog-heading"><h2 id="names-title">填写同学姓名</h2><button class="icon-button" type="button" id="close-names" aria-label="关闭姓名编辑">×</button></div><p class="dialog-copy" id="names-hint"></p><label for="names-input" class="sr-only">每行一位同学的姓名</label><textarea id="names-input" rows="12" spellcheck="false" aria-describedby="names-count names-error"></textarea><div class="input-meta"><span id="names-count"></span><span>每名最多 20 个字符</span></div><p id="names-error" class="input-error" role="alert"></p><div class="dialog-actions"><button type="button" class="button button-plain" id="restore-numbers">使用编号</button><button type="submit" class="button button-dark">保存姓名</button></div></form></dialog>
+  <dialog id="copy-dialog" aria-labelledby="copy-title"><div class="dialog-heading"><h2 id="copy-title">复制全部分组名单</h2><button class="icon-button" id="close-copy" type="button" aria-label="关闭分组名单">×</button></div><p class="dialog-copy">浏览器未能自动复制，请选中下方文字复制。</p><label for="copy-text" class="sr-only">全部分组名单</label><textarea id="copy-text" rows="15" readonly></textarea></dialog>
 </body>
 </html>
