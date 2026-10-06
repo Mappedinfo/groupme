@@ -13,10 +13,31 @@ export function balancedSizes(n, k) {
   return Array.from({ length: k }, (_, i) => small + Number(i < n % k));
 }
 
+/** 固定组草稿只校验结构；全轮可行性由 validateConfig 统一检查。 */
+export function normalizeFixedGroups(fixedGroups, people) {
+  integer(people, LIMITS.minPeople, LIMITS.maxPeople, '总人数');
+  const source = fixedGroups ?? [];
+  if (!Array.isArray(source)) throw new Error('固定小组须为成员编号列表的数组。');
+  const seen = new Set();
+  return Array.from(source, (group, index) => {
+    if (!Array.isArray(group) || group.length < 2) throw new Error(`固定小组 ${index + 1} 至少需要 2 位成员。`);
+    return Array.from(group, (id) => {
+      integer(id, 1, people, '固定小组成员编号');
+      if (seen.has(id)) throw new Error(`${id} 号同学在固定小组中重复出现；组内和不同固定组之间都不能重复。`);
+      seen.add(id);
+      return id;
+    }).sort((a, b) => a - b);
+  }).sort((a, b) => a[0] - b[0]);
+}
+
 function typeContext(config) {
   const labels = [];
   const members = [];
   const labelIds = new Map();
+  const fixedGroups = config.fixedGroups.map((group) => group.map((id) => id - 1));
+  const fixedGroupIndex = new Int16Array(config.people).fill(-1);
+  fixedGroups.forEach((group, index) => group.forEach((id) => { fixedGroupIndex[id] = index; }));
+  const rotatingIds = [];
   const ids = config.types.map((label, person) => {
     if (!labelIds.has(label)) {
       labelIds.set(label, labels.length);
@@ -24,20 +45,30 @@ function typeContext(config) {
       members.push([]);
     }
     const id = labelIds.get(label);
-    members[id].push(person);
+    if (fixedGroupIndex[person] === -1) { members[id].push(person); rotatingIds.push(person); }
     return id;
   });
-  return { mode: config.typeMode, labels, members, ids, counts: members.map((list) => list.length) };
+  const counts = members.map((list) => list.length);
+  const fixedPairs = fixedGroups.reduce((sum, group) => sum + group.length * (group.length - 1) / 2, 0);
+  const rotatingEligiblePairs = config.typeMode === 'within' ? counts.reduce((sum, count) => sum + count * (count - 1) / 2, 0) : rotatingIds.length * (rotatingIds.length - 1) / 2;
+  return { mode: config.typeMode, labels, members, ids, counts, fixedGroups, fixedGroupIndex, rotatingIds, fixedPairs, rotatingEligiblePairs };
 }
 
 const feasibilityCache = new Map();
-function allowedCounts(n, mode, counts) {
-  if (mode !== 'within') return Array.from({ length: Math.floor(n / 2) - 2 }, (_, i) => i + 3);
-  const key = `${n}:${[...counts].sort((a, b) => a - b).join(',')}`;
+function allowedCounts(n, mode, counts, fixedGroups = []) {
+  if (mode !== 'within' && fixedGroups.length === 0) return Array.from({ length: Math.floor(n / 2) - 2 }, (_, i) => i + 3);
+  const fixedSizes = fixedGroups.map((group) => group.length);
+  const rotatingPeople = n - fixedSizes.reduce((sum, size) => sum + size, 0);
+  const key = `${n}:${mode}:${[...counts].sort((a, b) => a - b).join(',')}:${fixedSizes.sort((a, b) => a - b).join(',')}`;
   if (feasibilityCache.has(key)) return [...feasibilityCache.get(key)];
   const allowed = [];
   for (let k = 3; k <= Math.floor(n / 2); k += 1) {
     const small = Math.floor(n / k);
+    const rotatingGroups = k - fixedGroups.length;
+    if (rotatingGroups < 0 || fixedSizes.some((size) => size < small || size > small + Number(n % k > 0))) continue;
+    if (rotatingGroups === 0) { if (rotatingPeople === 0) allowed.push(k); continue; }
+    if (rotatingPeople < small * rotatingGroups || rotatingPeople > (small + 1) * rotatingGroups) continue;
+    if (mode !== 'within') { allowed.push(k); continue; }
     let least = 0;
     let most = 0;
     let possible = true;
@@ -48,7 +79,7 @@ function allowedCounts(n, mode, counts) {
       least += lower;
       most += upper;
     }
-    if (possible && least <= k && k <= most) allowed.push(k);
+    if (possible && least <= rotatingGroups && rotatingGroups <= most) allowed.push(k);
   }
   if (feasibilityCache.size >= 128) feasibilityCache.delete(feasibilityCache.keys().next().value);
   feasibilityCache.set(key, [...allowed]);
@@ -61,7 +92,7 @@ function compareSizeDistance(n, preferred, a, b) {
 }
 
 function effectiveAutomaticCounts(config, context = typeContext(config)) {
-  const allowed = allowedCounts(config.people, config.typeMode, context.counts);
+  const allowed = allowedCounts(config.people, config.typeMode, context.counts, context.fixedGroups);
   if (config.preferredSize === null) return allowed;
   let best = allowed[0];
   for (const k of allowed) {
@@ -93,15 +124,17 @@ export function validateConfig(config) {
     if (Array.from(label).length > 20) throw new Error(`第 ${index + 1} 位同学的类型不能超过 20 个字符。`);
     return label;
   });
-  const normalized = { people, rounds, groupCounts, objective, seed: seed >>> 0, typeMode, types, preferredSize };
-  if (typeMode === 'within') {
+  const fixedGroups = normalizeFixedGroups(config.fixedGroups, people);
+  const normalized = { people, rounds, groupCounts, objective, seed: seed >>> 0, typeMode, types, preferredSize, fixedGroups };
+  if (typeMode === 'within' || fixedGroups.length) {
     const context = typeContext(normalized);
-    const singleton = context.counts.indexOf(1);
-    if (singleton !== -1) throw new Error(`类型「${context.labels[singleton]}」只有 1 人，无法同类组队且每组至少 2 人。`);
-    const allowed = allowedCounts(people, typeMode, context.counts);
-    if (!allowed.length) throw new Error('这些类型人数无法同时满足同类组队、至少 3 组、每组至少 2 人和全轮人数相差不超过 1 人；请调整类型或组队方式。');
+    if (context.rotatingIds.length === 1) throw new Error('固定小组之外只剩 1 位轮换成员，无法满足每组至少 2 人；请调整固定小组。');
+    const singleton = typeMode === 'within' ? context.counts.indexOf(1) : -1;
+    if (singleton !== -1) throw new Error(`${fixedGroups.length ? '轮换成员中的' : ''}类型「${context.labels[singleton]}」只有 1 人，无法同类组队且每组至少 2 人。`);
+    const allowed = allowedCounts(people, typeMode, context.counts, context.fixedGroups);
+    if (!allowed.length) throw new Error(`${fixedGroups.length ? '固定小组与当前人数、类型规则' : '这些类型人数'}无法同时满足至少 3 组、每组至少 2 人和全轮人数相差不超过 1 人；请调整固定小组、类型或组队方式。`);
     groupCounts.forEach((k, round) => {
-      if (k !== null && !allowed.includes(k)) throw new Error(`作业 ${round + 1} 的 ${k} 组不满足同类组队与均匀人数要求；可行组数为 ${allowed.join('、')}。`);
+      if (k !== null && !allowed.includes(k)) throw new Error(`作业 ${round + 1} 的 ${k} 组不满足${fixedGroups.length ? '固定小组、类型与' : '同类组队与'}均匀人数要求；可行组数为 ${allowed.join('、')}。`);
     });
   }
   return normalized;
@@ -109,7 +142,8 @@ export function validateConfig(config) {
 
 export function feasibleGroupCounts(config) {
   const normalized = validateConfig(config);
-  return allowedCounts(normalized.people, normalized.typeMode, typeContext(normalized).counts);
+  const context = typeContext(normalized);
+  return allowedCounts(normalized.people, normalized.typeMode, context.counts, context.fixedGroups);
 }
 
 export function getAutomaticGroupCounts(config) {
@@ -121,7 +155,8 @@ export function getSizeOptions(config) {
   if (!config || typeof config !== 'object') throw new Error('请提供有效的分组设置。');
   const normalized = validateConfig({ ...config, groupCounts: undefined });
   const preferred = normalized.preferredSize ?? 4;
-  return allowedCounts(normalized.people, normalized.typeMode, typeContext(normalized).counts)
+  const context = typeContext(normalized);
+  return allowedCounts(normalized.people, normalized.typeMode, context.counts, context.fixedGroups)
     .sort((a, b) => compareSizeDistance(normalized.people, preferred, a, b) || a - b)
     .map((groupCount) => ({
       groupCount,
@@ -136,6 +171,7 @@ export function validateSchedule(assignments, n, config) {
   if (!Array.isArray(assignments) || assignments.length < 1 || assignments.length > LIMITS.maxRounds) throw new Error(`作业次数须为 1 至 ${LIMITS.maxRounds}。`);
   const normalized = config ? validateConfig(config) : null;
   if (normalized && (normalized.people !== n || normalized.rounds !== assignments.length)) throw new Error('分组与总人数或作业次数不一致。');
+  const context = normalized ? typeContext(normalized) : null;
   const automaticCounts = normalized ? effectiveAutomaticCounts(normalized) : null;
   for (let r = 0; r < assignments.length; r += 1) {
     const round = assignments[r];
@@ -143,7 +179,7 @@ export function validateSchedule(assignments, n, config) {
     const expectedSizes = balancedSizes(n, round.length);
     if (normalized?.groupCounts[r] != null && normalized.groupCounts[r] !== round.length) throw new Error(`作业 ${r + 1} 的组数与设置不一致。`);
     if (normalized?.groupCounts[r] === null && !automaticCounts.includes(round.length)) {
-      const requirement = normalized.preferredSize === null ? '当前类型组队约束' : `每组期望人数 ${normalized.preferredSize} 人`;
+      const requirement = normalized.preferredSize === null ? '当前固定小组与类型组队约束' : `每组期望人数 ${normalized.preferredSize} 人`;
       throw new Error(`作业 ${r + 1} 的组数不符合${requirement}；自动可选组数为 ${automaticCounts.join('、')}。`);
     }
     if (round.some((group) => !Array.isArray(group))) throw new Error('每个小组须为成员列表。');
@@ -158,13 +194,19 @@ export function validateSchedule(assignments, n, config) {
       }
     }
     if (seen.size !== n) throw new Error(`作业 ${r + 1} 必须包含全部 ${n} 位同学。`);
+    for (const fixed of normalized?.fixedGroups ?? []) {
+      if (!round.some((group) => group.length === fixed.length && fixed.every((id) => group.includes(id)))) {
+        throw new Error(`作业 ${r + 1} 的固定小组（${fixed.join('、')} 号）必须完整保留，不能加人、拆分或交换成员。`);
+      }
+    }
+    const rotatingRound = context ? round.filter((group) => context.fixedGroupIndex[group[0] - 1] === -1) : round;
     if (normalized?.typeMode === 'within') {
-      for (const group of round) {
+      for (const group of rotatingRound) {
         if (group.some((id) => normalized.types[id - 1] !== normalized.types[group[0] - 1])) throw new Error(`作业 ${r + 1} 违反同类组队要求。`);
       }
     } else if (normalized?.typeMode === 'mix') {
       for (const label of new Set(normalized.types)) {
-        const amounts = round.map((group) => group.reduce((sum, id) => sum + Number(normalized.types[id - 1] === label), 0));
+        const amounts = rotatingRound.map((group) => group.reduce((sum, id) => sum + Number(normalized.types[id - 1] === label), 0));
         if (Math.max(...amounts) - Math.min(...amounts) > 1) throw new Error(`作业 ${r + 1} 的类型「${label}」未均匀分散到各组。`);
       }
     }
@@ -177,7 +219,13 @@ export function analyzeSchedule(assignments, n, config) {
   validateSchedule(assignments, n, normalized);
   const context = typeContext(normalized);
   const counts = new Uint16Array(n * n);
-  const people = Array.from({ length: n }, (_, i) => ({ id: i + 1, type: normalized.types[i], eligibleTeammates: normalized.typeMode === 'within' ? context.counts[context.ids[i]] - 1 : n - 1, teammates: [], uniqueCount: 0, rounds: [] }));
+  const people = Array.from({ length: n }, (_, i) => {
+    const fixedGroupIndex = context.fixedGroupIndex[i] === -1 ? null : context.fixedGroupIndex[i];
+    const domain = fixedGroupIndex !== null ? context.fixedGroups[fixedGroupIndex]
+      : normalized.typeMode === 'within' ? context.members[context.ids[i]] : context.rotatingIds;
+    const eligibleTeammateIds = domain.filter((id) => id !== i).map((id) => id + 1);
+    return { id: i + 1, type: normalized.types[i], fixedGroupIndex, eligibleTeammateIds, eligibleTeammates: eligibleTeammateIds.length, teammates: [], uniqueCount: 0, rounds: [] };
+  });
   const sets = Array.from({ length: n }, () => new Set());
   let uniquePairs = 0;
   let repeatedPairs = 0;
@@ -204,7 +252,7 @@ export function analyzeSchedule(assignments, n, config) {
         }
       }
     });
-    return { groupCount: round.length, sizes: round.map((group) => group.length), uniqueNewPairs, pairMeetings };
+    return { groupCount: round.length, sizes: round.map((group) => group.length), uniqueNewPairs, pairMeetings, fixedGroupCount: normalized.fixedGroups.length, rotatingGroupCount: round.length - normalized.fixedGroups.length };
   });
   const frequencies = new Map();
   let sumSquaredTeammates = 0;
@@ -215,12 +263,26 @@ export function analyzeSchedule(assignments, n, config) {
     frequencies.set(person.uniqueCount, (frequencies.get(person.uniqueCount) ?? 0) + 1);
   });
   const possiblePairs = n * (n - 1) / 2;
-  const eligiblePairs = normalized.typeMode === 'within' ? context.counts.reduce((sum, count) => sum + count * (count - 1) / 2, 0) : possiblePairs;
+  const eligiblePairs = people.reduce((sum, person) => sum + person.eligibleTeammates, 0) / 2;
   const averageTeammates = uniquePairs * 2 / n;
+  const fixedUniquePairs = context.fixedGroups.reduce((sum, group) => sum + group.length * (group.length - 1) / 2, 0);
+  const rotating = people.filter((person) => person.fixedGroupIndex === null);
+  const rotatingUniquePairs = uniquePairs - fixedUniquePairs;
+  const rotatingEligiblePairs = eligiblePairs - fixedUniquePairs;
+  const rotatingDegrees = rotating.map((person) => person.uniqueCount);
+  const fixedRepeatMeetings = fixedUniquePairs * (assignments.length - 1);
   return {
     uniquePairs, possiblePairs, repeatMeetings, repeatedPairs, coverage: uniquePairs / possiblePairs,
     eligiblePairs, eligibleCoverage: uniquePairs / eligiblePairs, typeMode: normalized.typeMode,
-    types: context.labels.map((label, i) => ({ label, people: context.counts[i] })),
+    types: context.labels.map((label, i) => ({ label, people: normalized.types.filter((entry) => entry === label).length, rotatingPeople: context.counts[i] })),
+    fixedGroupCount: normalized.fixedGroups.length, fixedPeople: n - rotating.length, fixedUniquePairs, fixedRepeatMeetings,
+    rotatingPeople: rotating.length, rotatingUniquePairs, rotatingEligiblePairs,
+    rotatingMinimumTeammates: rotating.length ? Math.min(...rotatingDegrees) : 0,
+    rotatingMaximumTeammates: rotating.length ? Math.max(...rotatingDegrees) : 0,
+    rotatingAverageTeammates: rotating.length ? rotatingUniquePairs * 2 / rotating.length : 0,
+    rotatingSumSquaredTeammates: rotatingDegrees.reduce((sum, degree) => sum + degree ** 2, 0),
+    rotatingCoverage: rotatingEligiblePairs ? rotatingUniquePairs / rotatingEligiblePairs : 1,
+    rotatingRepeatMeetings: repeatMeetings - fixedRepeatMeetings,
     minimumTeammates: Math.min(...people.map((person) => person.uniqueCount)),
     maximumTeammates: Math.max(...people.map((person) => person.uniqueCount)),
     averageTeammates, sumSquaredTeammates,
@@ -251,6 +313,7 @@ export function parseNames(text, n) {
 }
 
 function squaredCoverage(metrics) {
+  if (Number.isFinite(metrics.rotatingSumSquaredTeammates)) return metrics.rotatingSumSquaredTeammates;
   if (Number.isFinite(metrics.sumSquaredTeammates)) return metrics.sumSquaredTeammates;
   if (metrics.people) return metrics.people.reduce((sum, person) => sum + person.uniqueCount ** 2, 0);
   return metrics.distribution.reduce((sum, row) => sum + row.teammates ** 2 * row.people, 0);
@@ -259,9 +322,12 @@ function squaredCoverage(metrics) {
 /** 正式目标包含个人最小覆盖、不同搭档总数、覆盖离散程度。 */
 export function compareMetrics(a, b, objective = 'fair') {
   if (!['fair', 'coverage'].includes(objective)) throw new Error('无效的比较目标。');
-  const first = objective === 'fair' ? 'minimumTeammates' : 'uniquePairs';
-  const second = objective === 'fair' ? 'uniquePairs' : 'minimumTeammates';
-  return a[first] - b[first] || a[second] - b[second] || squaredCoverage(b) - squaredCoverage(a);
+  const minimum = (metrics) => metrics.rotatingMinimumTeammates ?? metrics.minimumTeammates;
+  const unique = (metrics) => metrics.rotatingUniquePairs ?? metrics.uniquePairs;
+  const minDifference = minimum(a) - minimum(b);
+  const uniqueDifference = unique(a) - unique(b);
+  return (objective === 'fair' ? minDifference || uniqueDifference : uniqueDifference || minDifference)
+    || squaredCoverage(b) - squaredCoverage(a);
 }
 
 function rngFrom(seed) {
@@ -291,33 +357,48 @@ function boundsFor(config) {
   const n = config.people;
   const context = typeContext(config);
   const smallestK = effectiveAutomaticCounts(config, context)[0];
-  const maxPairs = config.groupCounts.reduce((sum, k) => sum + pairMeetingsFor(n, k ?? smallestK), 0);
-  const possiblePairs = config.typeMode === 'within' ? context.counts.reduce((sum, count) => sum + count * (count - 1) / 2, 0) : n * (n - 1) / 2;
-  const personalCap = config.typeMode === 'within' ? Math.min(...context.counts) - 1 : n - 1;
-  let minUpper = Math.min(personalCap, Math.floor(2 * maxPairs / n));
-  if (config.rounds === 1) minUpper = Math.min(personalCap, Math.floor(n / (config.groupCounts[0] ?? smallestK)) - 1);
-  return { uniquePairsUpperBound: Math.min(possiblePairs, maxPairs), minTeammatesUpperBound: minUpper };
+  const rotatingCount = context.rotatingIds.length;
+  const maxPairs = config.groupCounts.reduce((sum, k) => sum + pairMeetingsFor(n, k ?? smallestK) - context.fixedPairs, 0);
+  const personalCap = !rotatingCount ? 0 : config.typeMode === 'within' ? Math.min(...context.counts.filter((count) => count > 0)) - 1 : rotatingCount - 1;
+  let minUpper = rotatingCount ? Math.min(personalCap, Math.floor(2 * maxPairs / rotatingCount)) : 0;
+  if (config.rounds === 1 && rotatingCount) {
+    const rotatingGroups = (config.groupCounts[0] ?? smallestK) - context.fixedGroups.length;
+    minUpper = Math.min(personalCap, Math.floor(rotatingCount / rotatingGroups) - 1);
+  }
+  const rotatingUniquePairsUpperBound = Math.min(context.rotatingEligiblePairs, maxPairs);
+  return { uniquePairsUpperBound: context.fixedPairs + rotatingUniquePairsUpperBound, minTeammatesUpperBound: minUpper, rotatingUniquePairsUpperBound };
+}
+
+function meetsProof(metrics, bounds, context) {
+  if (metrics.uniquePairs === context.fixedPairs + context.rotatingEligiblePairs) return true;
+  const people = context.rotatingIds.length;
+  const total = metrics.rotatingUniquePairs * 2;
+  const low = people ? Math.floor(total / people) : 0;
+  const highCount = people ? total % people : 0;
+  const minimumSquares = (people - highCount) * low ** 2 + highCount * (low + 1) ** 2;
+  return metrics.uniquePairs === bounds.uniquePairsUpperBound
+    && metrics.rotatingMinimumTeammates === bounds.minTeammatesUpperBound
+    && metrics.rotatingSumSquaredTeammates === minimumSquares;
 }
 
 function proofFor(config, metrics) {
   const bounds = boundsFor(config);
-  const total = metrics.uniquePairs * 2;
-  const low = Math.floor(total / config.people);
-  const highCount = total % config.people;
-  const minimumSquares = (config.people - highCount) * low ** 2 + highCount * (low + 1) ** 2;
-  const fullyWithin = config.typeMode === 'within' && metrics.uniquePairs === metrics.eligiblePairs;
-  const optimal = fullyWithin || (metrics.uniquePairs === bounds.uniquePairsUpperBound
-    && metrics.minimumTeammates === bounds.minTeammatesUpperBound
-    && metrics.sumSquaredTeammates === minimumSquares);
+  const context = typeContext(config);
+  const fullyEligible = metrics.uniquePairs === metrics.eligiblePairs;
+  const optimal = meetsProof(metrics, bounds, context);
   return {
     optimal,
     label: optimal ? '已证明覆盖目标最优' : '预算内找到的最佳方案',
     reason: optimal
-      ? (fullyWithin
+      ? (metrics.rotatingPeople === 0
+        ? '所有同学都在固定小组中，每次作业完整保留这些小组；没有需要轮换的成员，当前约束下的合作关系已全部覆盖。'
+        : fullyEligible && config.fixedGroups.length
+        ? '固定小组完整保留，轮换成员已覆盖固定边界与类型规则允许的全部合作关系；轮换成员的最小覆盖、总覆盖与公平度均已最优。此证明不包含重复碰面次数最少。'
+        : fullyEligible && config.typeMode === 'within'
         ? '每个人都已与同类型的其余全部同学合作；同类组队限制下的个人最小覆盖、总覆盖与覆盖公平度均已最优。此证明不包含重复碰面次数最少。'
         : metrics.uniquePairs === metrics.possiblePairs
         ? '每个人都已与其余全部同学合作；个人最小覆盖、总覆盖与覆盖公平度都达到理论最优。此证明不包含重复碰面次数最少。'
-        : '个人最小覆盖和不同搭档总数都达到组数约束下的有效上界，覆盖离散程度也达到整数理论下界。此证明不包含重复碰面次数最少。')
+        : `${config.fixedGroups.length ? '轮换成员的' : '个人'}最小覆盖和不同搭档总数都达到当前约束下的有效上界，覆盖离散程度也达到整数理论下界。此证明不包含重复碰面次数最少。`)
       : '当前方案满足全部分组约束，但尚未取得全局最优证明；更长搜索或不同种子可能找到更好的方案。',
     ...bounds,
   };
@@ -330,7 +411,7 @@ export function evaluateProof(assignments, config) {
 }
 
 function createState(n, context) {
-  return { n, context, counts: new Uint16Array(n * n), degrees: new Int16Array(n), uniquePairs: 0, meetings: 0, squares: 0, minimum: 0 };
+  return { n, context, counts: new Uint16Array(n * n), degrees: new Int16Array(n), uniquePairs: 0, meetings: 0, squares: 0, minimum: 0, rotatingUniquePairs: 0, rotatingSquares: 0, rotatingMinimum: 0 };
 }
 
 function changePair(state, a, b, direction) {
@@ -342,7 +423,9 @@ function changePair(state, a, b, direction) {
   const degreeChange = direction === 1 ? Number(previous === 0) : -Number(previous === 1);
   if (degreeChange) {
     state.uniquePairs += degreeChange;
-    state.squares += 2 * degreeChange * (state.degrees[a] + state.degrees[b]) + 2;
+    const squareChange = 2 * degreeChange * (state.degrees[a] + state.degrees[b]) + 2;
+    state.squares += squareChange;
+    if (state.context.fixedGroupIndex[a] === -1) { state.rotatingUniquePairs += degreeChange; state.rotatingSquares += squareChange; }
     state.degrees[a] += degreeChange;
     state.degrees[b] += degreeChange;
   }
@@ -355,15 +438,17 @@ function changeRound(state, round, direction) {
     }
   }
   state.minimum = Math.min(...state.degrees);
+  state.rotatingMinimum = state.context.rotatingIds.length ? Math.min(...state.context.rotatingIds.map((id) => state.degrees[id])) : 0;
 }
 
 function stateMetrics(state) {
-  return { minimumTeammates: state.minimum, uniquePairs: state.uniquePairs, sumSquaredTeammates: state.squares, repeatMeetings: state.meetings - state.uniquePairs };
+  return { minimumTeammates: state.minimum, uniquePairs: state.uniquePairs, sumSquaredTeammates: state.squares, repeatMeetings: state.meetings - state.uniquePairs,
+    rotatingMinimumTeammates: state.rotatingMinimum, rotatingUniquePairs: state.rotatingUniquePairs, rotatingSumSquaredTeammates: state.rotatingSquares };
 }
 
 function cloneSchedule(schedule) { return schedule.map((round) => round.map((group) => [...group])); }
 
-function typeSlots(state, k, random) {
+function typeSlots(state, k, random, totalGroups) {
   const { context } = state;
   const slots = Array.from({ length: k }, () => new Uint16Array(context.counts.length));
   if (context.mode === 'mix') {
@@ -379,7 +464,7 @@ function typeSlots(state, k, random) {
     }
   } else {
     // c=q*t+b：每类组数 t 可取一个连续整数区间，据此精确配出总共 k 组。
-    const small = Math.floor(state.n / k);
+    const small = Math.floor(state.n / totalGroups);
     const groupCounts = context.counts.map((count) => Math.ceil(count / (small + 1)));
     let remaining = k - groupCounts.reduce((sum, count) => sum + count, 0);
     const order = shuffle(Array.from({ length: context.counts.length }, (_, i) => i), random);
@@ -402,10 +487,17 @@ function typeSlots(state, k, random) {
 }
 
 function makeRound(state, k, random, variation) {
-  const slots = state.context.mode === 'off' ? null : typeSlots(state, k, random);
-  const sizes = slots ? slots.map((group) => group.reduce((sum, count) => sum + count, 0)) : balancedSizes(state.n, k);
+  const { context } = state;
+  const fixed = context.fixedGroups.map((group) => [...group]);
+  const rotatingGroups = k - fixed.length;
+  if (rotatingGroups === 0) return fixed;
+  const rotatingPeople = context.rotatingIds.length;
+  const slots = context.mode === 'off' ? null : typeSlots(state, rotatingGroups, random, k);
+  const smaller = Math.floor(rotatingPeople / rotatingGroups);
+  const sizes = slots ? slots.map((group) => group.reduce((sum, count) => sum + count, 0))
+    : Array.from({ length: rotatingGroups }, (_, i) => smaller + Number(i < rotatingPeople % rotatingGroups));
   const groups = sizes.map(() => []);
-  const order = shuffle(Array.from({ length: state.n }, (_, id) => id), random);
+  const order = shuffle([...context.rotatingIds], random);
   if (variation % 3 !== 2) order.sort((a, b) => state.degrees[a] - state.degrees[b]);
   for (const person of order) {
     let best = -1;
@@ -426,7 +518,7 @@ function makeRound(state, k, random, variation) {
     groups[best].push(person);
     if (slots) slots[best][state.context.ids[person]] -= 1;
   }
-  return groups;
+  return [...fixed, ...groups];
 }
 
 function pairRoundRobin(n, roundIndex, permutation) {
@@ -438,8 +530,12 @@ function pairRoundRobin(n, roundIndex, permutation) {
 }
 
 function attemptSwap(state, round, random, objective, scratch) {
-  const aGroupIndex = Math.floor(random() * round.length);
-  let bGroupIndex = Math.floor(random() * (round.length - 1));
+  const { context } = state;
+  const offset = context.fixedGroups.length;
+  const rotatingGroups = round.length - offset;
+  if (rotatingGroups < 2) return false;
+  const aGroupIndex = offset + Math.floor(random() * rotatingGroups);
+  let bGroupIndex = offset + Math.floor(random() * (rotatingGroups - 1));
   if (bGroupIndex >= aGroupIndex) bGroupIndex += 1;
   const aGroup = round[aGroupIndex];
   const bGroup = round[bGroupIndex];
@@ -447,15 +543,14 @@ function attemptSwap(state, round, random, objective, scratch) {
   const bIndex = Math.floor(random() * bGroup.length);
   const a = aGroup[aIndex];
   const b = bGroup[bIndex];
-  const { context } = state;
   const aType = context.ids[a];
   const bType = context.ids[b];
   if (aType !== bType && context.mode === 'within') return false;
   if (aType !== bType && context.mode === 'mix') {
-    const aLow = Math.floor(context.counts[aType] / round.length);
-    const aHigh = Math.ceil(context.counts[aType] / round.length);
-    const bLow = Math.floor(context.counts[bType] / round.length);
-    const bHigh = Math.ceil(context.counts[bType] / round.length);
+    const aLow = Math.floor(context.counts[aType] / rotatingGroups);
+    const aHigh = Math.ceil(context.counts[aType] / rotatingGroups);
+    const bLow = Math.floor(context.counts[bType] / rotatingGroups);
+    const bHigh = Math.ceil(context.counts[bType] / rotatingGroups);
     const count = (group, type) => group.reduce((sum, person) => sum + Number(context.ids[person] === type), 0);
     if (count(aGroup, aType) - 1 < aLow || count(bGroup, aType) + 1 > aHigh
         || count(bGroup, bType) - 1 < bLow || count(aGroup, bType) + 1 > bHigh) return false;
@@ -474,12 +569,15 @@ function attemptSwap(state, round, random, objective, scratch) {
     if (state.counts[a * state.n + other] === 0) { deltas[a] += 1; deltas[other] += 1; deltaPairs += 1; }
   }
   let minimum = state.n;
+  let rotatingMinimum = state.n;
   let squares = state.squares;
   for (let id = 0; id < state.n; id += 1) {
     minimum = Math.min(minimum, state.degrees[id] + deltas[id]);
+    if (context.fixedGroupIndex[id] === -1) rotatingMinimum = Math.min(rotatingMinimum, state.degrees[id] + deltas[id]);
     squares += 2 * state.degrees[id] * deltas[id] + deltas[id] ** 2;
   }
-  const candidate = { minimumTeammates: minimum, uniquePairs: state.uniquePairs + deltaPairs, sumSquaredTeammates: squares };
+  const candidate = { minimumTeammates: minimum, uniquePairs: state.uniquePairs + deltaPairs, sumSquaredTeammates: squares,
+    rotatingMinimumTeammates: rotatingMinimum, rotatingUniquePairs: state.rotatingUniquePairs + deltaPairs, rotatingSumSquaredTeammates: state.rotatingSquares + squares - state.squares };
   const comparison = compareMetrics(candidate, stateMetrics(state), objective);
   if (comparison < 0 || (comparison === 0 && random() > 0.15)) return false;
   for (const other of aGroup) {
@@ -491,6 +589,7 @@ function attemptSwap(state, round, random, objective, scratch) {
   aGroup[aIndex] = b;
   bGroup[bIndex] = a;
   state.minimum = minimum;
+  state.rotatingMinimum = rotatingMinimum;
   return true;
 }
 
@@ -512,7 +611,6 @@ export function solveSchedule(rawConfig, options = {}) {
   const context = typeContext(config);
   const allowedK = effectiveAutomaticCounts(config, context);
   const smallestK = allowedK[0];
-  const eligiblePairs = config.typeMode === 'within' ? context.counts.reduce((sum, count) => sum + count * (count - 1) / 2, 0) : n * (n - 1) / 2;
   const scratch = new Int16Array(n);
   // 固定工作量限额便于复验；初始化计入搜索预算，到期后完成有界结果校验。
   const iterationLimit = maxIterations ?? Math.min(10000000, Math.max(300, Math.floor(timeBudgetMs * 240000 / (n + 30))));
@@ -522,16 +620,10 @@ export function solveSchedule(rawConfig, options = {}) {
   let bestMetrics;
   let work = 0;
   let timeLimitReached = false;
-  const fullPairs = n * (n - 1) / 2;
+  const fullPairs = context.fixedPairs + context.rotatingEligiblePairs;
   const upperBounds = boundsFor(config);
   function proved(metrics) {
-    if (config.typeMode === 'within' && metrics.uniquePairs === eligiblePairs) return true;
-    const total = metrics.uniquePairs * 2;
-    const low = Math.floor(total / n);
-    const extra = total % n;
-    return metrics.uniquePairs === upperBounds.uniquePairsUpperBound
-      && metrics.minimumTeammates === upperBounds.minTeammatesUpperBound
-      && metrics.sumSquaredTeammates === (n - extra) * low ** 2 + extra * (low + 1) ** 2;
+    return meetsProof(metrics, upperBounds, context);
   }
   function expired() {
     if (now() >= deadline) { timeLimitReached = true; return true; }
@@ -552,12 +644,14 @@ export function solveSchedule(rawConfig, options = {}) {
   }
   const automaticRounds = config.groupCounts.map((k, i) => k === null ? i : -1).filter((i) => i >= 0);
   const allPairs = n % 2 === 0 && config.groupCounts.every((k) => k === n / 2 || (k === null && allowedK.length === 1 && allowedK[0] === n / 2))
-    && (config.typeMode === 'off' || context.counts.length === 1);
+    && (config.typeMode === 'off' || context.counts.filter((count) => count > 0).length <= 1);
   let schedule = [];
   let state = createState(n, context);
-  const initialPermutation = shuffle(Array.from({ length: n }, (_, id) => id), random);
+  const initialPermutation = shuffle([...context.rotatingIds], random);
   for (let r = 0; r < config.rounds; r += 1) {
-    const round = allPairs ? pairRoundRobin(n, r, initialPermutation) : makeRound(state, config.groupCounts[r] ?? smallestK, random, 0);
+    const round = allPairs
+      ? [...context.fixedGroups.map((group) => [...group]), ...(initialPermutation.length ? pairRoundRobin(initialPermutation.length, r, initialPermutation) : [])]
+      : makeRound(state, config.groupCounts[r] ?? smallestK, random, 0);
     schedule.push(round);
     changeRound(state, round, 1);
   }
@@ -636,6 +730,9 @@ export function solveSchedule(rawConfig, options = {}) {
   if (metrics.uniquePairs !== bestMetrics.uniquePairs
       || metrics.minimumTeammates !== bestMetrics.minimumTeammates
       || metrics.sumSquaredTeammates !== bestMetrics.sumSquaredTeammates
+      || metrics.rotatingUniquePairs !== bestMetrics.rotatingUniquePairs
+      || metrics.rotatingMinimumTeammates !== bestMetrics.rotatingMinimumTeammates
+      || metrics.rotatingSumSquaredTeammates !== bestMetrics.rotatingSumSquaredTeammates
       || metrics.repeatMeetings !== bestMetrics.repeatMeetings) throw new Error('分组统计校验失败，请重新计算。');
   return {
     config, assignments, metrics, proof: proofFor(config, metrics),

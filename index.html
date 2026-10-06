@@ -8,8 +8,8 @@
   <meta name="description" content="自由设置人数、多次作业、各次组数与类型，选择不同类型混合或同类内组队，比较两种自动分组方案。">
   <title>Groupme · 多认识一些新同学</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./src/style.css?v=layout-1">
-  <script type="module" src="./src/app.js?v=layout-1"></script>
+  <link rel="stylesheet" href="./src/style.css?v=fixed-1">
+  <script type="module" src="./src/app.js?v=fixed-1"></script>
 </head>
 <body>
   <a class="skip-link" href="#settings">跳到分组设置</a>
@@ -54,6 +54,12 @@
           <div id="type-summary" class="type-summary" aria-label="当前设置的类型人数"></div>
           <p id="type-draft-note" class="small-note"></p>
         </fieldset>
+        <section class="fixed-settings" aria-labelledby="fixed-settings-title">
+          <div class="type-edit-row"><div><h3 id="fixed-settings-title">有需要保持不变的小组吗？</h3><p class="small-note">固定组从第一轮起保留原成员，不加入其他同学；其余人继续轮换。</p></div><button type="button" id="edit-fixed" class="button button-outline">编辑固定小组</button></div>
+          <p class="small-note">固定组可以跨类型，类型规则只用于轮换成员。固定组已计入每次总组数，所有小组仍须人数差至多 1。</p>
+          <div id="fixed-summary" class="fixed-summary" aria-label="当前设置的固定小组"></div>
+          <p id="fixed-draft-note" class="small-note" aria-live="polite"></p>
+        </section>
         <p id="config-error" class="input-error" role="alert"></p>
       </form>
       <div id="solve-progress" class="solve-progress" hidden><span class="progress-dot" aria-hidden="true"></span><span id="progress-text" role="status" aria-live="polite">正在搜索更好的组合…</span></div>
@@ -70,7 +76,8 @@
 
     <section id="results" class="results" hidden aria-label="求解结果">
       <div class="result-toolbar"><div><h2>看看这次怎么组队</h2><p class="small-note" id="result-detail"></p></div><div class="toolbar-actions"><button class="button button-plain" type="button" id="edit-names">填写姓名</button><button class="button button-outline" type="button" id="copy-rosters">复制全部名单</button></div></div>
-      <div class="result-metrics" aria-label="方案统计"><span>每人认识 <strong id="teammate-range"></strong> 位</span><span><span id="coverage-label">全班覆盖</span> <strong id="coverage-value"></strong></span><span>重复碰面 <strong id="repeat-count"></strong> 对次</span></div>
+      <div class="result-metrics" aria-label="方案统计"><span id="teammate-stat"><span id="teammate-label">每人认识</span> <strong id="teammate-range"></strong> 位</span><span><span id="coverage-label">全班覆盖</span> <strong id="coverage-value"></strong></span><span>重复碰面 <strong id="repeat-count"></strong> 对次</span></div>
+      <p id="fixed-result-note" class="small-note" hidden></p>
       <p id="type-result-note" class="small-note"></p>
       <div class="explorer">
         <section class="groups-section" aria-labelledby="groups-title">
@@ -84,6 +91,7 @@
           <label class="eyebrow" for="person-select">每个人的合作机会</label>
           <select id="person-select"></select>
           <p id="person-type" class="small-note"></p>
+          <p id="person-fixed-note" class="small-note" hidden></p>
           <h3 id="person-title" class="sr-only">个人合作详情</h3>
           <p class="person-summary"><strong id="person-count"></strong><span id="person-total"></span></p>
           <div class="coverage-track" aria-hidden="true"><div id="person-bar"></div></div>
@@ -94,7 +102,7 @@
           <span id="selection-announcement" class="sr-only" aria-live="polite"></span>
         </aside>
       </div>
-      <details class="explanation"><summary>这份结果有多好？<span aria-hidden="true">＋</span></summary><p id="proof-description"></p><p id="search-description"></p><p>机会均衡优先提高“认识同学最少的人”的人数，其次增加全班不同搭档；整体覆盖反过来。两者最后都尽量缩小个人覆盖差异。重复碰面不作为首要目标，因为大组即使有重复，也可能让大家认识更多新同学。</p><p>“不同搭档”按两人的组合计数；“重复碰面”统计同一对人在第二次及之后的同组次数。“新队友”按作业的先后顺序计算。</p><p>期望人数留空时，自动模式可能偏向较少的大组，以增加合作覆盖。填写期望后，先选平均人数最接近的合法安排，再优化新队友；单次填写的组数优先。</p></details>
+      <details class="explanation"><summary>这份结果有多好？<span aria-hidden="true">＋</span></summary><p id="proof-description"></p><p id="search-description"></p><p>机会均衡优先提高“认识同学最少的人”的人数，其次增加全班不同搭档；整体覆盖反过来。两者最后都尽量缩小个人覆盖差异。有固定小组时，最低覆盖与个人差异只比较参与轮换的成员，固定组的重复合作单独列出。重复碰面不作为首要目标，因为大组即使有重复，也可能让大家认识更多新同学。</p><p>“不同搭档”按两人的组合计数；“重复碰面”统计同一对人在第二次及之后的同组次数。“新队友”按作业的先后顺序计算。</p><p>期望人数留空时，自动模式可能偏向较少的大组，以增加合作覆盖。填写期望后，先选平均人数最接近的合法安排，再优化新队友；单次填写的组数优先。</p></details>
     </section>
     <p id="status" class="status" role="status" aria-live="polite"></p>
     <noscript><p class="input-error">请启用 JavaScript，以使用自动求解和分组功能。</p></noscript>
@@ -121,6 +129,17 @@
     <p id="type-editor-status" class="small-note" role="status"></p>
     <p id="types-error" class="input-error" role="alert"></p>
     <div class="dialog-actions"><span class="small-note">每个标签最多 20 个字符</span><button type="submit" class="button button-dark">保存类型设置</button></div>
+  </form></dialog>
+  <dialog id="fixed-dialog" aria-labelledby="fixed-title"><form id="fixed-form" novalidate>
+    <div class="dialog-heading"><h2 id="fixed-title">编辑固定小组</h2><button class="icon-button" id="close-fixed" type="button" aria-label="关闭固定小组编辑">×</button></div>
+    <p class="dialog-copy">先选成员，再加入一组。每组至少 2 人，一人只能属于一个固定组。保存后重新求解生效；关闭则放弃本次编辑。</p>
+    <div id="fixed-editor-groups" class="fixed-editor-groups"></div>
+    <div class="fixed-picker-heading"><h3>选择未固定的同学</h3><label class="sr-only" for="fixed-search">搜索编号或姓名</label><input id="fixed-search" type="search" placeholder="搜索编号或姓名" autocomplete="off"></div>
+    <div id="fixed-picker" class="fixed-picker" role="group" aria-label="选择固定组成员"></div>
+    <div class="fixed-selection-actions"><button id="clear-fixed-selection" class="button button-plain" type="button">取消选择</button><button id="add-fixed-selection" class="button button-outline" type="button" disabled>选择至少 2 位同学</button></div>
+    <details class="bulk-fixed"><summary>按编号批量填写 <span aria-hidden="true">＋</span></summary><p class="small-note">每行一组，用逗号或空格分隔编号，例如 1, 2, 3。空白列表表示取消全部固定组。</p><label class="sr-only" for="fixed-bulk">每行一个固定小组的成员编号</label><textarea id="fixed-bulk" rows="4" spellcheck="false"></textarea><button id="apply-fixed-bulk" class="button button-outline" type="button">填入固定组列表</button></details>
+    <p id="fixed-editor-summary" class="small-note" aria-live="polite"></p><p id="fixed-error" class="input-error" role="alert"></p>
+    <div class="dialog-actions"><span class="small-note">固定组可包含不同类型</span><button type="submit" class="button button-dark">保存固定小组</button></div>
   </form></dialog>
 </body>
 </html>

@@ -98,6 +98,40 @@ details[open]>summary>span:last-child { transform:none; }
 .type-summary { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 8px; max-height:100px; overflow:auto; }
 .type-badge { display:inline-block; padding:3px 8px; border:1px solid var(--line); border-radius:4px; color:var(--muted); font-size:11px; overflow-wrap:anywhere; max-width:100%; }
 #type-draft-note { font-size:11px; }
+.fixed-settings { margin-top:20px; padding-top:18px; border-top:1px solid var(--line); }
+.fixed-settings .type-edit-row { margin-top:0; }
+.fixed-settings h3 { font-size:12px; }
+.fixed-settings .small-note { font-size:11px; margin-top:6px; }
+.fixed-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; max-height:180px; overflow:auto; margin:10px 0; }
+.fixed-summary-item { padding:8px 11px; border:1px solid var(--line); border-radius:6px; font-size:11px; overflow-wrap:anywhere; }
+.fixed-summary-item strong { font-weight:500; display:block; }
+.fixed-summary-item span { color:var(--muted); }
+.fixed-group-badge { font-size:10px; color:var(--fresh); margin-top:12px; }
+.lock-group { margin-top:10px; padding:4px 0; font-size:10px; color:var(--muted); border:0; background:transparent; text-decoration:underline; text-underline-offset:3px; }
+.lock-group:disabled { text-decoration:none; opacity:.65; }
+#fixed-result-note:not([hidden]) { font-size:11px; margin:-10px 0 22px; max-width:900px; }
+#person-fixed-note { margin-top:7px; font-size:11px; }
+#fixed-dialog { width:min(600px,calc(100% - 32px)); }
+.fixed-editor-groups { max-height:23dvh; overflow:auto; margin-bottom:20px; }
+.fixed-editor-group { display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--line); padding:9px 0; }
+.fixed-editor-group>div { min-width:0; font-size:12px; }
+.fixed-editor-group strong { font-weight:500; }
+.fixed-editor-group p { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
+.fixed-editor-group .button { flex-shrink:0; min-height:34px; }
+.fixed-picker-heading { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; }
+.fixed-picker-heading h3 { font-size:12px; }
+#fixed-search { width:180px; max-width:100%; min-width:0; padding:7px 10px; border:1px solid var(--line); border-radius:6px; font-size:12px; }
+.fixed-picker { display:flex; flex-wrap:wrap; align-content:flex-start; gap:7px; max-height:30dvh; overflow:auto; padding:4px; margin:-4px; }
+.fixed-person { padding:8px 11px; border:1px solid var(--line); border-radius:6px; background:#fff; font-size:12px; overflow-wrap:anywhere; max-width:100%; }
+.fixed-person small { display:block; color:var(--muted); font-size:10px; }
+.fixed-person[aria-pressed=true] { border-color:var(--fresh); background:var(--fresh-soft); color:var(--fresh); }
+.fixed-selection-actions { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:14px 0; }
+.fixed-selection-actions .button { font-size:11px; }
+.fixed-selection-actions .button:disabled { opacity:.5; }
+.bulk-fixed { border-block:1px solid var(--line); padding:12px 0; margin:14px 0; }
+.bulk-fixed p { margin:10px 0; font-size:11px; }
+.bulk-fixed textarea { min-height:90px; font-size:13px; }
+.bulk-fixed .button { margin-top:8px; }
 #type-result-note:not([hidden]) { margin:-12px 0 22px; font-size:11px; }
 .group-types { border-top:1px solid var(--line); padding-top:9px; margin-top:12px; color:var(--muted); font-size:10px; overflow-wrap:anywhere; }
 .chip-type { display:block; font-size:9px; opacity:.72; line-height:1.4; margin-top:1px; }
@@ -284,6 +318,10 @@ textarea { width:100%; resize:vertical; max-height:50dvh; min-height:140px; bord
   .site-footer { padding-top:20px; gap:10px; }
 }
 @media(max-width:480px) {
+  #fixed-dialog { padding:18px; }
+  #fixed-search { font-size:16px; }
+  .fixed-settings .type-edit-row { flex-wrap:wrap; }
+  .fixed-selection-actions { flex-wrap:wrap; }
   #types-dialog { padding:18px; }
   .quick-types { padding:12px; }
   .quick-type-fields { flex-direction:column; gap:10px; }
