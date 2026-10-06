@@ -1,4 +1,4 @@
-import { solveSchedule } from './grouping.js?v=colors-1';
+import { solveSchedule } from './grouping.js?v=i18n-1';
 
 self.addEventListener('message', (event) => {
   const message = event.data;
@@ -11,6 +11,10 @@ self.addEventListener('message', (event) => {
     });
     self.postMessage({ type: 'result', requestId, result });
   } catch (error) {
-    self.postMessage({ type: 'error', requestId, message: error instanceof Error ? error.message : '求解失败，请检查分组设置。' });
+    self.postMessage({
+      type: 'error', requestId,
+      message: error instanceof Error ? error.message : '求解失败，请检查分组设置。',
+      messageEn: typeof error?.messageEn === 'string' ? error.messageEn : 'Unable to solve this configuration. Please check the grouping settings and try again.',
+    });
   }
 });

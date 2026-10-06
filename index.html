@@ -5,141 +5,142 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#ffffff">
   <meta name="color-scheme" content="light">
-  <meta name="description" content="自由设置人数、多次作业、各次组数与类型，选择不同类型混合或同类内组队，比较两种自动分组方案。">
+  <meta name="description" content="自由设置人数、多次作业、各次组数、类型与固定小组，比较两种自动分组方案。" data-i18n-content="page.description">
   <title>Groupme · 多认识一些新同学</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./src/style.css?v=colors-1">
-  <script type="module" src="./src/app.js?v=colors-1"></script>
+  <link rel="stylesheet" href="./src/style.css?v=i18n-1">
+  <script type="module" src="./src/app.js?v=i18n-1"></script>
 </head>
 <body>
-  <a class="skip-link" href="#settings">跳到分组设置</a>
+  <a class="skip-link" href="#settings"><span data-i18n="page.skip">跳到分组设置</span></a>
   <header class="site-header shell">
-    <a class="brand" href="./" aria-label="Groupme 首页"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>groupme<span class="brand-period">.</span></a>
-    <span class="header-note">一起完成，也一起认识。</span>
+    <a class="brand" href="./" aria-label="Groupme 首页" data-i18n-aria-label="page.home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>groupme<span class="brand-period">.</span></a>
+    <div class="header-tools"><span class="header-note"><span data-i18n="page.tagline">一起完成，也一起认识。</span></span><label class="language-control"><span class="sr-only"><span data-i18n="page.language">界面语言</span></span><select id="language-select" aria-label="界面语言" data-i18n-aria-label="page.language"><option value="zh">中文</option><option value="en">English</option></select></label></div>
   </header>
   <main class="shell">
     <section class="intro">
-      <p class="eyebrow">多人 · 多次 · 多一些新伙伴</p>
-      <h1>每一次分组，<br>多认识一些新同学。</h1>
-      <p class="intro-copy">人数和作业次数由你决定。把合作的机会，安排得更好一点。</p>
+      <p class="eyebrow"><span data-i18n="page.eyebrow">多人 · 多次 · 多一些新伙伴</span></p>
+      <h1><span data-i18n="page.hero1">每一次分组，</span><br><span data-i18n="page.hero2">多认识一些新同学。</span></h1>
+      <p class="intro-copy"><span data-i18n="page.intro">人数和作业次数由你决定。把合作的机会，安排得更好一点。</span></p>
     </section>
-
     <section id="settings" aria-labelledby="settings-title">
-      <div class="section-heading"><h2 id="settings-title">先定下这次的安排</h2><span class="small-note">每组至少 2 人 · 每次至少 3 组 · 人数差至多 1</span></div>
+      <div class="section-heading settings-heading"><h2 id="settings-title"><span data-i18n="page.settings">设置分组</span></h2><span class="small-note"><span data-i18n="page.rules">每组至少 2 人 · 每次至少 3 组 · 人数差至多 1</span></span></div>
       <form id="settings-form" novalidate>
-        <div class="settings-row">
-          <label class="field">总人数 <span class="number-field"><input id="people-input" type="number" min="6" max="300" step="1" value="14" required><span>人</span></span><small>6–300 人</small></label>
-          <label class="field">作业次数 <span class="number-field"><input id="rounds-input" type="number" min="1" max="30" step="1" value="3" required><span>次</span></span><small>1–30 次</small></label>
-          <div class="solve-actions"><button class="button button-dark" type="submit" id="solve-button">求解并比较两种方案 <span aria-hidden="true">↗</span></button><button class="button button-outline" type="button" id="cancel-button" hidden>停止求解</button><p class="small-note">在当前浏览器计算，通常需要几秒</p></div>
-        </div>
-        <section class="size-planning" aria-labelledby="size-planning-title">
-          <div class="size-planning-heading"><h3 id="size-planning-title">小组规模</h3><span id="size-policy-status" class="size-policy-status" aria-live="polite"></span></div>
-          <p id="size-policy-hint" class="small-note">可混用：指定组数只覆盖对应作业，其余作业按期望人数安排。</p>
-          <div class="size-default">
-            <label class="field size-field">期望每组人数 <span class="number-field"><input id="size-input" type="number" min="2" max="300" step="1" placeholder="不限" aria-describedby="size-hint size-policy-status size-preview"><span>人</span></span><small id="size-hint">留空不限 · 取最接近的均匀分组</small></label>
-            <div class="size-suggestions"><div class="size-options-heading"><span id="size-options-title">快捷推荐</span><button id="clear-size" class="button button-plain" type="button">不限每组人数</button></div><div id="size-options" class="size-options" role="group" aria-label="推荐的每组人数"></div></div>
+        <section class="settings-block basic-settings" aria-labelledby="basic-title">
+          <div class="block-heading"><span class="block-number" aria-hidden="true">01</span><div><h3 id="basic-title"><span data-i18n="page.basic">基础信息</span></h3><p class="small-note"><span data-i18n="page.basicHint">先确定参与人数与需要安排的次数。</span></p></div></div>
+          <div class="settings-row">
+            <label class="field"><span data-i18n="page.people">总人数</span><span class="number-field"><input id="people-input" type="number" min="6" max="300" step="1" value="14" required><span><span data-i18n="page.peopleUnit">人</span></span></span><small><span data-i18n="page.peopleRange">6–300 人</span></small></label>
+            <label class="field"><span data-i18n="page.rounds">作业次数</span><span class="number-field"><input id="rounds-input" type="number" min="1" max="30" step="1" value="3" required><span><span data-i18n="page.roundUnit">次</span></span></span><small><span data-i18n="page.roundRange">1–30 次</span></small></label>
           </div>
-          <p id="size-preview" class="small-note" aria-live="polite"></p>
-          <div id="size-override-notice" class="size-override-notice" hidden><p id="size-override"></p><button id="auto-all-rounds" class="button button-plain" type="button" hidden>将各次组数全部改为自动</button></div>
-          <details class="round-settings" id="round-settings"><summary>按作业单独指定组数 <span id="round-policy-summary" class="small-note">可选 · 仅覆盖对应作业</span><span aria-hidden="true">＋</span></summary><p class="small-note"><strong>填了组数 → 该次采用组数；留空 → 该次按期望人数。</strong>例如期望每组 4 人，但作业 1 填 5 组，则只有作业 1 使用 5 组。收起此处不会清除设置。</p><div id="round-inputs" class="round-inputs"></div><p id="group-range" class="small-note"></p></details>
         </section>
-        <fieldset class="type-settings">
-          <legend>有需要考虑的类型或水平吗？</legend>
-          <div class="type-policy" role="group" aria-label="类型分组方式">
-            <label><input type="radio" name="type-mode" value="off" checked><span>不区分类型</span></label>
-            <label><input type="radio" name="type-mode" value="mix"><span>不同类型混合</span></label>
-            <label><input type="radio" name="type-mode" value="within"><span>同类型内组队</span></label>
+        <section class="settings-block group-settings" aria-labelledby="group-settings-title">
+          <div class="block-heading"><span class="block-number" aria-hidden="true">02</span><div><h3 id="group-settings-title"><span data-i18n="page.groups">小组信息</span></h3><p class="small-note"><span data-i18n="page.groupsHint">统一设置每组规模，也可为某次作业单独指定组数。</span></p></div></div>
+          <section class="size-planning" aria-labelledby="size-planning-title">
+            <div class="size-planning-heading"><h4 id="size-planning-title"><span data-i18n="page.sizeTitle">每组规模</span></h4><span id="size-policy-status" class="size-policy-status" aria-live="polite"></span></div>
+            <p id="size-policy-hint" class="small-note"><span data-i18n="page.sizePolicy">可混用：指定组数只覆盖对应作业，其余作业按期望人数安排。</span></p>
+            <div class="size-default">
+              <label class="field size-field"><span data-i18n="page.size">期望每组人数</span><span class="number-field"><input id="size-input" type="number" min="2" max="300" step="1" placeholder="不限" data-i18n-placeholder="page.unlimited" aria-describedby="size-hint size-policy-status size-preview"><span><span data-i18n="page.peopleUnit">人</span></span></span><small id="size-hint"><span data-i18n="page.sizeHint">留空不限 · 取最接近的均匀分组</span></small></label>
+              <div class="size-suggestions"><div class="size-options-heading"><span id="size-options-title"><span data-i18n="page.recommendations">快捷推荐</span></span><button id="clear-size" class="button button-plain" type="button"><span data-i18n="page.clearSize">不限每组人数</span></button></div><div id="size-options" class="size-options" role="group" aria-label="推荐的每组人数" data-i18n-aria-label="page.sizeOptions"></div></div>
+            </div>
+            <p id="size-preview" class="small-note" aria-live="polite"></p>
+            <div id="size-override-notice" class="size-override-notice" hidden><p id="size-override"></p><button id="auto-all-rounds" class="button button-plain" type="button" hidden><span data-i18n="page.autoAll">将各次组数全部改为自动</span></button></div>
+          </section>
+          <details class="round-settings" id="round-settings"><summary><strong><span data-i18n="page.roundGroups">每次作业的小组数</span></strong><span id="round-policy-summary" class="small-note"><span data-i18n="page.roundOptional">可选 · 仅覆盖对应作业</span></span><span class="disclosure-icon" aria-hidden="true">＋</span></summary><p class="small-note"><strong><span data-i18n="page.roundRule">填写组数 → 该次采用组数；留空 → 该次按期望人数。</span></strong> <span data-i18n="page.roundExample">例如期望每组 4 人，但作业 1 填 5 组，则只有作业 1 使用 5 组。收起此处不会清除设置。</span></p><div id="round-inputs" class="round-inputs"></div><p id="group-range" class="small-note"></p></details>
+        </section>
+        <section class="settings-block special-settings" aria-labelledby="special-title">
+          <div class="block-heading"><span class="block-number" aria-hidden="true">03</span><div><h3 id="special-title"><span data-i18n="page.special">特定分组</span></h3><p class="small-note"><span data-i18n="page.specialHint">按类型或水平安排，也可让指定小组一直保持不变。</span></p></div></div>
+          <div class="special-grid">
+            <fieldset class="type-settings">
+              <legend><span data-i18n="page.typesTitle">按类型或水平分组</span></legend>
+              <div class="type-policy" role="group" aria-label="类型分组方式" data-i18n-aria-label="page.typeModes">
+                <label><input type="radio" name="type-mode" value="off" checked><span><span data-i18n="page.typeOff">不区分类型</span></span></label>
+                <label><input type="radio" name="type-mode" value="mix"><span><span data-i18n="page.typeMix">不同类型混合</span></span></label>
+                <label><input type="radio" name="type-mode" value="within"><span><span data-i18n="page.typeWithin">同类型内组队</span></span></label>
+              </div>
+              <p id="type-policy-hint" class="small-note"></p>
+              <div id="type-summary" class="type-summary" aria-label="当前设置的类型人数" data-i18n-aria-label="page.typeSummary"></div>
+              <p id="type-draft-note" class="small-note"></p>
+              <button type="button" id="edit-types" class="button button-outline"><span data-i18n="page.editTypes">编辑类型</span></button>
+            </fieldset>
+            <section class="fixed-settings" aria-labelledby="fixed-settings-title">
+              <h4 id="fixed-settings-title"><span data-i18n="page.fixedTitle">固定小组</span></h4>
+              <p class="small-note"><span data-i18n="page.fixedHint">固定组从第一轮起保留原成员，不加入其他同学；其余人继续轮换。</span></p>
+              <p class="small-note"><span data-i18n="page.fixedRule">固定组可以跨类型，类型规则只用于轮换成员。固定组已计入每次总组数，所有小组仍须人数差至多 1。</span></p>
+              <div id="fixed-summary" class="fixed-summary" aria-label="当前设置的固定小组" data-i18n-aria-label="page.fixedSummary"></div>
+              <p id="fixed-draft-note" class="small-note" aria-live="polite"></p>
+              <button type="button" id="edit-fixed" class="button button-outline"><span data-i18n="page.editFixed">编辑固定小组</span></button>
+            </section>
           </div>
-          <div class="type-edit-row"><p id="type-policy-hint" class="small-note"></p><button type="button" id="edit-types" class="button button-outline">编辑类型</button></div>
-          <div id="type-summary" class="type-summary" aria-label="当前设置的类型人数"></div>
-          <p id="type-draft-note" class="small-note"></p>
-        </fieldset>
-        <section class="fixed-settings" aria-labelledby="fixed-settings-title">
-          <div class="type-edit-row"><div><h3 id="fixed-settings-title">有需要保持不变的小组吗？</h3><p class="small-note">固定组从第一轮起保留原成员，不加入其他同学；其余人继续轮换。</p></div><button type="button" id="edit-fixed" class="button button-outline">编辑固定小组</button></div>
-          <p class="small-note">固定组可以跨类型，类型规则只用于轮换成员。固定组已计入每次总组数，所有小组仍须人数差至多 1。</p>
-          <div id="fixed-summary" class="fixed-summary" aria-label="当前设置的固定小组"></div>
-          <p id="fixed-draft-note" class="small-note" aria-live="polite"></p>
         </section>
-        <p id="config-error" class="input-error" role="alert"></p>
+        <section class="settings-block comparison-section" aria-labelledby="comparison-title">
+          <div class="block-heading"><span class="block-number" aria-hidden="true">04</span><div><h3 id="comparison-title"><span data-i18n="page.objectives">优化目标</span></h3><p class="small-note"><span data-i18n="page.objectivesHint">同样的设置，比较两种目标下的安排。</span></p></div></div>
+          <div class="comparison-grid" role="group" aria-label="选择要查看的优化目标" data-i18n-aria-label="page.chooseObjective">
+            <button id="fair-card" class="objective-card" type="button" data-objective="fair" aria-pressed="true" disabled><span class="objective-heading"><span><span data-i18n="page.fair">机会均衡</span></span><span class="objective-selected" aria-hidden="true"><span data-i18n="page.viewing">查看中</span></span></span><span class="objective-copy"><span data-i18n="page.fairCopy">先照顾认识同学最少的人，再增加全班搭档。</span></span><span class="objective-numbers" id="fair-numbers"><span data-i18n="page.waiting">等待求解</span></span><span class="objective-quality" id="fair-quality"></span></button>
+            <button id="coverage-card" class="objective-card" type="button" data-objective="coverage" aria-pressed="false" disabled><span class="objective-heading"><span><span data-i18n="page.coverage">整体覆盖</span></span><span class="objective-selected" aria-hidden="true"><span data-i18n="page.viewing">查看中</span></span></span><span class="objective-copy"><span data-i18n="page.coverageCopy">先增加全班搭档，再兼顾每个人的机会。</span></span><span class="objective-numbers" id="coverage-numbers"><span data-i18n="page.waiting">等待求解</span></span><span class="objective-quality" id="coverage-quality"></span></button>
+          </div>
+          <p id="result-context" class="small-note"><span data-i18n="page.resultContext">求解后可比较两种方案，点击卡片查看完整安排。</span></p>
+          <p class="comparison-note small-note" id="comparison-note"><span data-i18n="page.comparisonHint">两种目标可能找到同样好的方案。重复合作不一定能完全避免。</span></p>
+          <div class="solve-actions"><button class="button button-dark" type="submit" id="solve-button"><span data-i18n="page.solve">求解并比较两种方案</span><span aria-hidden="true">↗</span></button><button class="button button-outline" type="button" id="cancel-button" hidden><span data-i18n="page.cancelSolve">停止求解</span></button><p class="small-note"><span data-i18n="page.solveHint">在当前浏览器计算，通常需要几秒</span></p></div>
+          <p id="config-error" class="input-error" role="alert"></p>
+        </section>
       </form>
-      <div id="solve-progress" class="solve-progress" hidden><span class="progress-dot" aria-hidden="true"></span><span id="progress-text" role="status" aria-live="polite">正在搜索更好的组合…</span></div>
+      <div id="solve-progress" class="solve-progress" hidden><span class="progress-dot" aria-hidden="true"></span><span id="progress-text" role="status" aria-live="polite"><span data-i18n="page.progress">正在搜索更好的组合…</span></span></div>
     </section>
-
-    <section class="comparison-section" aria-labelledby="comparison-title">
-      <div class="section-heading"><div><h2 id="comparison-title">比较两种目标</h2><p id="result-context" class="small-note">使用同样的安排，分别寻找两种方案。</p></div></div>
-      <div class="comparison-grid" role="group" aria-label="选择要查看的优化目标">
-        <button id="fair-card" class="objective-card" type="button" data-objective="fair" aria-pressed="true" disabled><span class="objective-heading"><span>机会均衡</span><span class="objective-selected" aria-hidden="true">查看中</span></span><span class="objective-copy">先照顾认识同学最少的人，再增加全班搭档。</span><span class="objective-numbers" id="fair-numbers">等待求解</span><span class="objective-quality" id="fair-quality"> </span></button>
-        <button id="coverage-card" class="objective-card" type="button" data-objective="coverage" aria-pressed="false" disabled><span class="objective-heading"><span>整体覆盖</span><span class="objective-selected" aria-hidden="true">查看中</span></span><span class="objective-copy">先增加全班搭档，再兼顾每个人的机会。</span><span class="objective-numbers" id="coverage-numbers">等待求解</span><span class="objective-quality" id="coverage-quality"> </span></button>
-      </div>
-      <p class="comparison-note small-note" id="comparison-note">两种目标可能找到同样好的方案。重复合作不一定能完全避免。</p>
-    </section>
-
-    <section id="results" class="results" hidden aria-label="求解结果">
-      <div class="result-toolbar"><div><h2>看看这次怎么组队</h2><p class="small-note" id="result-detail"></p></div><div class="toolbar-actions"><button class="button button-plain" type="button" id="edit-names">填写姓名</button><button class="button button-outline" type="button" id="copy-rosters">复制全部名单</button></div></div>
-      <div class="result-metrics" aria-label="方案统计"><span id="teammate-stat"><span id="teammate-label">每人认识</span> <strong id="teammate-range"></strong> 位</span><span><span id="coverage-label">全班覆盖</span> <strong id="coverage-value"></strong></span><span>重复碰面 <strong id="repeat-count"></strong> 对次</span></div>
-      <p id="fixed-result-note" class="small-note" hidden></p>
-      <p id="type-result-note" class="small-note"></p>
+    <section id="results" class="results" hidden aria-label="求解结果" data-i18n-aria-label="page.resultsLabel">
+      <div class="result-toolbar"><div><h2><span data-i18n="page.resultsTitle">看看这次怎么组队</span></h2><p class="small-note" id="result-detail"></p></div><div class="toolbar-actions"><button class="button button-plain" type="button" id="edit-names"><span data-i18n="page.editNames">填写姓名</span></button><button class="button button-outline" type="button" id="copy-rosters"><span data-i18n="page.copy">复制全部名单</span></button></div></div>
+      <div class="result-metrics" aria-label="方案统计" data-i18n-aria-label="page.stats"><span id="teammate-stat"><span id="teammate-label"><span data-i18n="page.metEach">每人认识</span></span> <strong id="teammate-range"></strong> <span data-i18n="page.teammatesUnit">位</span></span><span><span id="coverage-label"><span data-i18n="page.classCoverage">全班覆盖</span></span> <strong id="coverage-value"></strong></span><span><span data-i18n="page.repeats">重复碰面</span> <strong id="repeat-count"></strong> <span data-i18n="page.pairMeetings">对次</span></span></div>
+      <p id="fixed-result-note" class="small-note" hidden></p><p id="type-result-note" class="small-note"></p>
       <div class="explorer">
         <section class="groups-section" aria-labelledby="groups-title">
-          <div class="groups-toolbar"><h3 id="groups-title"><label for="round-select">查看作业</label></h3><select id="round-select"></select></div>
-          <p id="round-summary" class="small-note"></p>
-          <div id="groups" class="groups-grid"></div>
-          <div class="legend"><span><i class="legend-swatch selected" aria-hidden="true"></i>当前同学</span><span><i class="legend-swatch fresh" aria-hidden="true"></i>本次新队友</span><span><i class="legend-swatch known" aria-hidden="true"></i>本次曾合作队友</span></div>
-          <div id="type-legend" class="type-legend" hidden><p id="type-reference"></p><div class="legend"><span><i class="legend-border same" aria-hidden="true"></i>同类型 · 实线</span><span><i class="legend-border different" aria-hidden="true"></i>不同类型 · 虚线</span></div></div>
+          <div class="groups-toolbar"><h3 id="groups-title"><label for="round-select"><span data-i18n="page.viewRound">查看作业</span></label></h3><select id="round-select"></select></div>
+          <p id="round-summary" class="small-note"></p><div id="groups" class="groups-grid"></div>
+          <div class="legend"><span><i class="legend-swatch selected" aria-hidden="true"></i><span data-i18n="page.selectedPerson">当前同学</span></span><span><i class="legend-swatch fresh" aria-hidden="true"></i><span data-i18n="page.newTeammate">本次新队友</span></span><span><i class="legend-swatch known" aria-hidden="true"></i><span data-i18n="page.oldTeammate">本次曾合作队友</span></span></div>
+          <div id="type-legend" class="type-legend" hidden><p id="type-reference"></p><div class="legend"><span><i class="legend-border same" aria-hidden="true"></i><span data-i18n="page.sameType">同类型 · 实线</span></span><span><i class="legend-border different" aria-hidden="true"></i><span data-i18n="page.differentType">不同类型 · 虚线</span></span></div></div>
         </section>
         <aside class="person-panel" aria-labelledby="person-title">
-          <label class="eyebrow" for="person-select">每个人的合作机会</label>
-          <select id="person-select"></select>
-          <p id="person-type" class="small-note"></p>
-          <p id="person-fixed-note" class="small-note" hidden></p>
-          <h3 id="person-title" class="sr-only">个人合作详情</h3>
+          <label class="eyebrow" for="person-select"><span data-i18n="page.personalLabel">每个人的合作机会</span></label><select id="person-select"></select>
+          <p id="person-type" class="small-note"></p><p id="person-fixed-note" class="small-note" hidden></p>
+          <h3 id="person-title" class="sr-only"><span data-i18n="page.personalTitle">个人合作详情</span></h3>
           <p class="person-summary"><strong id="person-count"></strong><span id="person-total"></span></p>
           <div class="coverage-track" aria-hidden="true"><div id="person-bar"></div></div>
           <p id="person-caption" class="small-note"></p>
           <div class="teammate-section"><h3 id="mate-title"></h3><div class="mate-list" id="mate-list"></div></div>
-          <details class="person-details"><summary>查看每次合作</summary><ol id="person-history"></ol></details>
+          <details class="person-details"><summary><span data-i18n="page.history">查看每次合作</span></summary><ol id="person-history"></ol></details>
           <details class="person-details"><summary id="unmet-title"></summary><div id="unmet-list" class="unmet-list"></div></details>
           <span id="selection-announcement" class="sr-only" aria-live="polite"></span>
         </aside>
       </div>
-      <details class="explanation"><summary>这份结果有多好？<span aria-hidden="true">＋</span></summary><p id="proof-description"></p><p id="search-description"></p><p>机会均衡优先提高“认识同学最少的人”的人数，其次增加全班不同搭档；整体覆盖反过来。两者最后都尽量缩小个人覆盖差异。有固定小组时，最低覆盖与个人差异只比较参与轮换的成员，固定组的重复合作单独列出。重复碰面不作为首要目标，因为大组即使有重复，也可能让大家认识更多新同学。</p><p>“不同搭档”按两人的组合计数；“重复碰面”统计同一对人在第二次及之后的同组次数。“新队友”按作业的先后顺序计算。</p><p>期望人数留空时，自动模式可能偏向较少的大组，以增加合作覆盖。填写期望后，先选平均人数最接近的合法安排，再优化新队友；单次填写的组数优先。</p></details>
+      <details class="explanation"><summary><span data-i18n="page.qualityTitle">这份结果有多好？</span><span aria-hidden="true">＋</span></summary><p id="proof-description"></p><p id="search-description"></p><p><span data-i18n="page.qualityGoals">机会均衡优先提高“认识同学最少的人”的人数，其次增加全班不同搭档；整体覆盖反过来。两者最后都尽量缩小个人覆盖差异。有固定小组时，最低覆盖与个人差异只比较参与轮换的成员，固定组的重复合作单独列出。重复碰面不作为首要目标，因为大组即使有重复，也可能让大家认识更多新同学。</span></p><p><span data-i18n="page.qualityCounts">“不同搭档”按两人的组合计数；“重复碰面”统计同一对人在第二次及之后的同组次数。“新队友”按作业的先后顺序计算。</span></p><p><span data-i18n="page.qualitySizes">期望人数留空时，自动模式可能偏向较少的大组，以增加合作覆盖。填写期望后，先选平均人数最接近的合法安排，再优化新队友；单次填写的组数优先。</span></p></details>
     </section>
     <p id="status" class="status" role="status" aria-live="polite"></p>
-    <noscript><p class="input-error">请启用 JavaScript，以使用自动求解和分组功能。</p></noscript>
+    <noscript><p class="input-error"><span data-i18n="page.noScript">请启用 JavaScript，以使用自动求解和分组功能。</span></p></noscript>
   </main>
-  <footer class="site-footer shell"><span>Groupme · 好的合作，从重新分组开始。</span><div><span>姓名、类型和分组只保存在当前浏览器</span><a href="https://github.com/Mappedinfo/groupme" target="_blank" rel="noopener noreferrer">GitHub ↗</a></div></footer>
-
-  <dialog id="names-dialog" aria-labelledby="names-title"><form id="names-form"><div class="dialog-heading"><h2 id="names-title">填写同学姓名</h2><button class="icon-button" type="button" id="close-names" aria-label="关闭姓名编辑">×</button></div><p class="dialog-copy" id="names-hint"></p><label for="names-input" class="sr-only">每行一位同学的姓名</label><textarea id="names-input" rows="12" spellcheck="false" aria-describedby="names-count names-error"></textarea><div class="input-meta"><span id="names-count"></span><span>每名最多 20 个字符</span></div><p id="names-error" class="input-error" role="alert"></p><div class="dialog-actions"><button type="button" class="button button-plain" id="restore-numbers">使用编号</button><button type="submit" class="button button-dark">保存姓名</button></div></form></dialog>
-  <dialog id="copy-dialog" aria-labelledby="copy-title"><div class="dialog-heading"><h2 id="copy-title">复制全部分组名单</h2><button class="icon-button" id="close-copy" type="button" aria-label="关闭分组名单">×</button></div><p class="dialog-copy">浏览器未能自动复制，请选中下方文字复制。</p><label for="copy-text" class="sr-only">全部分组名单</label><textarea id="copy-text" rows="15" readonly></textarea></dialog>
+  <footer class="site-footer shell"><span><span data-i18n="page.footer">Groupme · 好的合作，从重新分组开始。</span></span><div><span><span data-i18n="page.privacy">姓名、类型和分组只保存在当前浏览器</span></span><a href="https://github.com/Mappedinfo/groupme" target="_blank" rel="noopener noreferrer">GitHub ↗</a></div></footer>
+  <dialog id="names-dialog" aria-labelledby="names-title"><form id="names-form"><div class="dialog-heading"><h2 id="names-title"><span data-i18n="page.namesTitle">填写同学姓名</span></h2><button class="icon-button" type="button" id="close-names" aria-label="关闭姓名编辑" data-i18n-aria-label="page.closeNames">×</button></div><p class="dialog-copy" id="names-hint"></p><label for="names-input" class="sr-only"><span data-i18n="page.namesInput">每行一位同学的姓名</span></label><textarea id="names-input" rows="12" spellcheck="false" aria-describedby="names-count names-error"></textarea><div class="input-meta"><span id="names-count"></span><span><span data-i18n="page.nameLimit">每名最多 20 个字符</span></span></div><p id="names-error" class="input-error" role="alert"></p><div class="dialog-actions"><button type="button" class="button button-plain" id="restore-numbers"><span data-i18n="page.restoreNumbers">使用编号</span></button><button type="submit" class="button button-dark"><span data-i18n="page.saveNames">保存姓名</span></button></div></form></dialog>
+  <dialog id="copy-dialog" aria-labelledby="copy-title"><div class="dialog-heading"><h2 id="copy-title"><span data-i18n="page.copyTitle">复制全部分组名单</span></h2><button class="icon-button" id="close-copy" type="button" aria-label="关闭分组名单" data-i18n-aria-label="page.closeCopy">×</button></div><p class="dialog-copy"><span data-i18n="page.copyHint">浏览器未能自动复制，请选中下方文字复制。</span></p><label for="copy-text" class="sr-only"><span data-i18n="page.copyInput">全部分组名单</span></label><textarea id="copy-text" rows="15" readonly></textarea></dialog>
   <dialog id="types-dialog" aria-labelledby="types-title"><form id="types-form" novalidate>
-    <div class="dialog-heading"><h2 id="types-title">编辑同学类型</h2><button class="icon-button" id="close-types" type="button" aria-label="关闭类型编辑">×</button></div>
-    <p class="dialog-copy" id="types-hint"></p>
+    <div class="dialog-heading"><h2 id="types-title"><span data-i18n="page.typesDialog">编辑同学类型</span></h2><button class="icon-button" id="close-types" type="button" aria-label="关闭类型编辑" data-i18n-aria-label="page.closeTypes">×</button></div><p class="dialog-copy" id="types-hint"></p>
     <section class="quick-types" aria-labelledby="quick-types-title">
-      <div class="quick-types-heading"><h3 id="quick-types-title">先快捷划分类别</h3><div class="quick-type-tabs" role="group" aria-label="快捷类别数"><button type="button" data-quick-count="2" aria-pressed="true">分 2 类</button><button type="button" data-quick-count="3" aria-pressed="false">分 3 类</button></div></div>
-      <p class="small-note">按编号从前往后分配，最后一类自动填入剩余人数。这是人员类别，作业仍至少分 3 个小组。</p>
-      <div id="quick-type-fields" class="quick-type-fields"></div>
-      <p id="quick-type-preview" class="small-note" aria-live="polite"></p>
-      <div class="quick-type-actions"><button id="balance-quick-types" class="button button-plain" type="button">恢复均分人数</button><button id="apply-quick-types" class="button button-outline" type="button">应用到下方列表</button></div>
+      <div class="quick-types-heading"><h3 id="quick-types-title"><span data-i18n="page.quickTitle">先快捷划分类别</span></h3><div class="quick-type-tabs" role="group" aria-label="快捷类别数" data-i18n-aria-label="page.quickCounts"><button type="button" data-quick-count="2" aria-pressed="true"><span data-i18n="page.twoTypes">分 2 类</span></button><button type="button" data-quick-count="3" aria-pressed="false"><span data-i18n="page.threeTypes">分 3 类</span></button></div></div>
+      <p class="small-note"><span data-i18n="page.quickHint">按编号从前往后分配，最后一类自动填入剩余人数。这是人员类别，作业仍至少分 3 个小组。</span></p><div id="quick-type-fields" class="quick-type-fields"></div><p id="quick-type-preview" class="small-note" aria-live="polite"></p>
+      <div class="quick-type-actions"><button id="balance-quick-types" class="button button-plain" type="button"><span data-i18n="page.balanceTypes">恢复均分人数</span></button><button id="apply-quick-types" class="button button-outline" type="button"><span data-i18n="page.applyQuickTypes">应用到下方列表</span></button></div>
     </section>
-    <div class="individual-types-heading"><h3>再逐人调整</h3><span class="small-note">点击下拉选择类型</span></div>
-    <div class="add-type-row"><label class="sr-only" for="new-type-label">新增类型名称</label><input id="new-type-label" type="text" maxlength="40" placeholder="新类型，例如熟练"><button id="add-type-label" class="button button-outline" type="button">添加类型</button></div>
-    <details class="bulk-types"><summary>从表格批量粘贴类型 <span aria-hidden="true">＋</span></summary><p class="small-note">按同学编号顺序，每行一个类型；空行表示未分类。</p><label for="types-bulk" class="sr-only">按编号顺序，每行一个类型</label><textarea id="types-bulk" rows="5" spellcheck="false"></textarea><button id="apply-type-bulk" type="button" class="button button-outline">填入下方列表</button></details>
-    <div class="types-table-heading" aria-hidden="true"><span>同学 · 按编号对应</span><span>类型 / 水平</span></div><div id="type-rows" class="type-rows"></div>
-    <p id="type-editor-summary" class="small-note" aria-live="polite"></p>
-    <p id="type-editor-status" class="small-note" role="status"></p>
-    <p id="types-error" class="input-error" role="alert"></p>
-    <div class="dialog-actions"><span class="small-note">每个标签最多 20 个字符</span><button type="submit" class="button button-dark">保存类型设置</button></div>
+    <div class="individual-types-heading"><h3><span data-i18n="page.individualTypes">再逐人调整</span></h3><span class="small-note"><span data-i18n="page.selectTypeHint">点击下拉选择类型</span></span></div>
+    <div class="add-type-row"><label class="sr-only" for="new-type-label"><span data-i18n="page.newTypeLabel">新增类型名称</span></label><input id="new-type-label" type="text" maxlength="40" placeholder="新类型，例如熟练" data-i18n-placeholder="page.newTypePlaceholder"><button id="add-type-label" class="button button-outline" type="button"><span data-i18n="page.addType">添加类型</span></button></div>
+    <details class="bulk-types"><summary><span data-i18n="page.bulkTypes">从表格批量粘贴类型</span><span aria-hidden="true">＋</span></summary><p class="small-note"><span data-i18n="page.bulkTypesHint">按同学编号顺序，每行一个类型；空行表示未分类。</span></p><label for="types-bulk" class="sr-only"><span data-i18n="page.bulkTypesInput">按编号顺序，每行一个类型</span></label><textarea id="types-bulk" rows="5" spellcheck="false"></textarea><button id="apply-type-bulk" type="button" class="button button-outline"><span data-i18n="page.applyBulkTypes">填入下方列表</span></button></details>
+    <div class="types-table-heading" aria-hidden="true"><span><span data-i18n="page.peopleByNumber">同学 · 按编号对应</span></span><span><span data-i18n="page.typeColumn">类型 / 水平</span></span></div><div id="type-rows" class="type-rows"></div>
+    <p id="type-editor-summary" class="small-note" aria-live="polite"></p><p id="type-editor-status" class="small-note" role="status"></p><p id="types-error" class="input-error" role="alert"></p>
+    <div class="dialog-actions"><span class="small-note"><span data-i18n="page.typeLimit">每个标签最多 20 个字符</span></span><button type="submit" class="button button-dark"><span data-i18n="page.saveTypes">保存类型设置</span></button></div>
   </form></dialog>
   <dialog id="fixed-dialog" aria-labelledby="fixed-title"><form id="fixed-form" novalidate>
-    <div class="dialog-heading"><h2 id="fixed-title">编辑固定小组</h2><button class="icon-button" id="close-fixed" type="button" aria-label="关闭固定小组编辑">×</button></div>
-    <p class="dialog-copy">先选成员，再加入一组。每组至少 2 人，一人只能属于一个固定组。保存后重新求解生效；关闭则放弃本次编辑。</p>
+    <div class="dialog-heading"><h2 id="fixed-title"><span data-i18n="page.editFixed">编辑固定小组</span></h2><button class="icon-button" id="close-fixed" type="button" aria-label="关闭固定小组编辑" data-i18n-aria-label="page.closeFixed">×</button></div><p class="dialog-copy"><span data-i18n="page.fixedEditorHint">先选成员，再加入一组。每组至少 2 人，一人只能属于一个固定组。保存后重新求解生效；关闭则放弃本次编辑。</span></p>
     <div id="fixed-editor-groups" class="fixed-editor-groups"></div>
-    <div class="fixed-picker-heading"><h3>选择未固定的同学</h3><label class="sr-only" for="fixed-search">搜索编号或姓名</label><input id="fixed-search" type="search" placeholder="搜索编号或姓名" autocomplete="off"></div>
-    <div id="fixed-picker" class="fixed-picker" role="group" aria-label="选择固定组成员"></div>
-    <div class="fixed-selection-actions"><button id="clear-fixed-selection" class="button button-plain" type="button">取消选择</button><button id="add-fixed-selection" class="button button-outline" type="button" disabled>选择至少 2 位同学</button></div>
-    <details class="bulk-fixed"><summary>按编号批量填写 <span aria-hidden="true">＋</span></summary><p class="small-note">每行一组，用逗号或空格分隔编号，例如 1, 2, 3。空白列表表示取消全部固定组。</p><label class="sr-only" for="fixed-bulk">每行一个固定小组的成员编号</label><textarea id="fixed-bulk" rows="4" spellcheck="false"></textarea><button id="apply-fixed-bulk" class="button button-outline" type="button">填入固定组列表</button></details>
+    <div class="fixed-picker-heading"><h3><span data-i18n="page.chooseFree">选择未固定的同学</span></h3><label class="sr-only" for="fixed-search"><span data-i18n="page.searchPeople">搜索编号或姓名</span></label><input id="fixed-search" type="search" placeholder="搜索编号或姓名" data-i18n-placeholder="page.searchPeople" autocomplete="off"></div>
+    <div id="fixed-picker" class="fixed-picker" role="group" aria-label="选择固定组成员" data-i18n-aria-label="page.fixedPicker"></div>
+    <div class="fixed-selection-actions"><button id="clear-fixed-selection" class="button button-plain" type="button"><span data-i18n="page.clearSelection">取消选择</span></button><button id="add-fixed-selection" class="button button-outline" type="button" disabled><span data-i18n="page.selectTwo">选择至少 2 位同学</span></button></div>
+    <details class="bulk-fixed"><summary><span data-i18n="page.bulkFixed">按编号批量填写</span><span aria-hidden="true">＋</span></summary><p class="small-note"><span data-i18n="page.bulkFixedHint">每行一组，用逗号或空格分隔编号，例如 1, 2, 3。空白列表表示取消全部固定组。</span></p><label class="sr-only" for="fixed-bulk"><span data-i18n="page.bulkFixedInput">每行一个固定小组的成员编号</span></label><textarea id="fixed-bulk" rows="4" spellcheck="false"></textarea><button id="apply-fixed-bulk" class="button button-outline" type="button"><span data-i18n="page.applyBulkFixed">填入固定组列表</span></button></details>
     <p id="fixed-editor-summary" class="small-note" aria-live="polite"></p><p id="fixed-error" class="input-error" role="alert"></p>
-    <div class="dialog-actions"><span class="small-note">固定组可包含不同类型</span><button type="submit" class="button button-dark">保存固定小组</button></div>
+    <div class="dialog-actions"><span class="small-note"><span data-i18n="page.fixedTypesHint">固定组可包含不同类型</span></span><button type="submit" class="button button-dark"><span data-i18n="page.saveFixed">保存固定小组</span></button></div>
   </form></dialog>
 </body>
 </html>

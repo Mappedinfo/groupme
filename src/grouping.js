@@ -1,29 +1,35 @@
+import { domainError } from './domain-error.js?v=i18n-1';
+
 /** 纯浏览器分组内核。编号从 1 开始；指标均由实际同组关系计算。 */
 export const LIMITS = Object.freeze({ minPeople: 6, maxPeople: 300, minRounds: 1, maxRounds: 30 });
 
-function integer(value, min, max, label) {
-  if (!Number.isInteger(value) || value < min || value > max) throw new Error(`${label}须为 ${min} 至 ${max} 之间的整数。`);
+function integer(value, min, max, label, labelEn) {
+  if (!Number.isInteger(value) || value < min || value > max) throw domainError(`${label}须为 ${min} 至 ${max} 之间的整数。`, `${labelEn} must be an integer between ${min} and ${max}.`);
   return value;
 }
 
+function typeLabelEn(label) {
+  return label === '未分类' ? 'Unassigned' : label;
+}
+
 export function balancedSizes(n, k) {
-  integer(n, LIMITS.minPeople, LIMITS.maxPeople, '总人数');
-  integer(k, 3, Math.floor(n / 2), '组数');
+  integer(n, LIMITS.minPeople, LIMITS.maxPeople, '总人数', 'Total number of people');
+  integer(k, 3, Math.floor(n / 2), '组数', 'Number of groups');
   const small = Math.floor(n / k);
   return Array.from({ length: k }, (_, i) => small + Number(i < n % k));
 }
 
 /** 固定组草稿只校验结构；全轮可行性由 validateConfig 统一检查。 */
 export function normalizeFixedGroups(fixedGroups, people) {
-  integer(people, LIMITS.minPeople, LIMITS.maxPeople, '总人数');
+  integer(people, LIMITS.minPeople, LIMITS.maxPeople, '总人数', 'Total number of people');
   const source = fixedGroups ?? [];
-  if (!Array.isArray(source)) throw new Error('固定小组须为成员编号列表的数组。');
+  if (!Array.isArray(source)) throw domainError('固定小组须为成员编号列表的数组。', 'Fixed groups must be an array of member ID lists.');
   const seen = new Set();
   return Array.from(source, (group, index) => {
-    if (!Array.isArray(group) || group.length < 2) throw new Error(`固定小组 ${index + 1} 至少需要 2 位成员。`);
+    if (!Array.isArray(group) || group.length < 2) throw domainError(`固定小组 ${index + 1} 至少需要 2 位成员。`, `Fixed group ${index + 1} must contain at least 2 members.`);
     return Array.from(group, (id) => {
-      integer(id, 1, people, '固定小组成员编号');
-      if (seen.has(id)) throw new Error(`${id} 号同学在固定小组中重复出现；组内和不同固定组之间都不能重复。`);
+      integer(id, 1, people, '固定小组成员编号', 'Fixed-group member ID');
+      if (seen.has(id)) throw domainError(`${id} 号同学在固定小组中重复出现；组内和不同固定组之间都不能重复。`, `Person ${id} appears more than once in the fixed groups. Members cannot be repeated within or across fixed groups.`);
       seen.add(id);
       return id;
     }).sort((a, b) => a - b);
@@ -102,39 +108,39 @@ function effectiveAutomaticCounts(config, context = typeContext(config)) {
 }
 
 export function validateConfig(config) {
-  if (!config || typeof config !== 'object') throw new Error('请提供有效的分组设置。');
-  const people = integer(config.people, LIMITS.minPeople, LIMITS.maxPeople, '总人数');
-  const rounds = integer(config.rounds, LIMITS.minRounds, LIMITS.maxRounds, '作业次数');
+  if (!config || typeof config !== 'object') throw domainError('请提供有效的分组设置。', 'Please provide valid grouping settings.');
+  const people = integer(config.people, LIMITS.minPeople, LIMITS.maxPeople, '总人数', 'Total number of people');
+  const rounds = integer(config.rounds, LIMITS.minRounds, LIMITS.maxRounds, '作业次数', 'Number of assignments');
   const rawCounts = config.groupCounts ?? Array(rounds).fill(null);
-  if (!Array.isArray(rawCounts) || rawCounts.length !== rounds) throw new Error('请为每次作业提供一个组数或自动选项。');
-  const groupCounts = Array.from(rawCounts, (k) => k === null ? null : integer(k, 3, Math.floor(people / 2), '每次作业的组数'));
+  if (!Array.isArray(rawCounts) || rawCounts.length !== rounds) throw domainError('请为每次作业提供一个组数或自动选项。', 'Provide a group count or the automatic option for each assignment.');
+  const groupCounts = Array.from(rawCounts, (k) => k === null ? null : integer(k, 3, Math.floor(people / 2), '每次作业的组数', 'Group count for each assignment'));
   const objective = config.objective ?? 'fair';
-  if (!['fair', 'coverage'].includes(objective)) throw new Error('请选择公平优先或覆盖优先。');
+  if (!['fair', 'coverage'].includes(objective)) throw domainError('请选择公平优先或覆盖优先。', 'Choose either fairness first or overall coverage first.');
   const seed = config.seed ?? 1;
-  integer(seed, 0, 0xffffffff, '随机种子');
+  integer(seed, 0, 0xffffffff, '随机种子', 'Random seed');
   const preferredSize = config.preferredSize ?? null;
-  if (preferredSize !== null) integer(preferredSize, 2, LIMITS.maxPeople, '每组期望人数');
+  if (preferredSize !== null) integer(preferredSize, 2, LIMITS.maxPeople, '每组期望人数', 'Preferred group size');
   const typeMode = config.typeMode ?? 'off';
-  if (!['off', 'mix', 'within'].includes(typeMode)) throw new Error('请选择不限制类型、均匀混合或同类组队。');
+  if (!['off', 'mix', 'within'].includes(typeMode)) throw domainError('请选择不限制类型、均匀混合或同类组队。', 'Choose no type restriction, evenly mixed types, or groups within each type.');
   const rawTypes = config.types ?? Array(people).fill('未分类');
-  if (!Array.isArray(rawTypes) || rawTypes.length !== people) throw new Error(`请提供恰好 ${people} 位同学的类型。`);
+  if (!Array.isArray(rawTypes) || rawTypes.length !== people) throw domainError(`请提供恰好 ${people} 位同学的类型。`, `Provide a type for exactly ${people} people.`);
   const types = Array.from(rawTypes, (value, index) => {
-    if (typeof value !== 'string') throw new Error(`第 ${index + 1} 位同学的类型须为文字。`);
+    if (typeof value !== 'string') throw domainError(`第 ${index + 1} 位同学的类型须为文字。`, `The type for person ${index + 1} must be text.`);
     const label = value.trim() || '未分类';
-    if (Array.from(label).length > 20) throw new Error(`第 ${index + 1} 位同学的类型不能超过 20 个字符。`);
+    if (Array.from(label).length > 20) throw domainError(`第 ${index + 1} 位同学的类型不能超过 20 个字符。`, `The type for person ${index + 1} cannot exceed 20 characters.`);
     return label;
   });
   const fixedGroups = normalizeFixedGroups(config.fixedGroups, people);
   const normalized = { people, rounds, groupCounts, objective, seed: seed >>> 0, typeMode, types, preferredSize, fixedGroups };
   if (typeMode === 'within' || fixedGroups.length) {
     const context = typeContext(normalized);
-    if (context.rotatingIds.length === 1) throw new Error('固定小组之外只剩 1 位轮换成员，无法满足每组至少 2 人；请调整固定小组。');
+    if (context.rotatingIds.length === 1) throw domainError('固定小组之外只剩 1 位轮换成员，无法满足每组至少 2 人；请调整固定小组。', 'Only 1 rotating member remains outside the fixed groups, so groups of at least 2 are impossible. Please adjust the fixed groups.');
     const singleton = typeMode === 'within' ? context.counts.indexOf(1) : -1;
-    if (singleton !== -1) throw new Error(`${fixedGroups.length ? '轮换成员中的' : ''}类型「${context.labels[singleton]}」只有 1 人，无法同类组队且每组至少 2 人。`);
+    if (singleton !== -1) throw domainError(`${fixedGroups.length ? '轮换成员中的' : ''}类型「${context.labels[singleton]}」只有 1 人，无法同类组队且每组至少 2 人。`, `Type “${typeLabelEn(context.labels[singleton])}” has only 1 ${fixedGroups.length ? 'rotating member' : 'person'}, so groups within each type cannot contain at least 2 people.`);
     const allowed = allowedCounts(people, typeMode, context.counts, context.fixedGroups);
-    if (!allowed.length) throw new Error(`${fixedGroups.length ? '固定小组与当前人数、类型规则' : '这些类型人数'}无法同时满足至少 3 组、每组至少 2 人和全轮人数相差不超过 1 人；请调整固定小组、类型或组队方式。`);
+    if (!allowed.length) throw domainError(`${fixedGroups.length ? '固定小组与当前人数、类型规则' : '这些类型人数'}无法同时满足至少 3 组、每组至少 2 人和全轮人数相差不超过 1 人；请调整固定小组、类型或组队方式。`, `${fixedGroups.length ? 'The fixed groups, population and type rules' : 'These type counts'} cannot satisfy all three requirements: at least 3 groups, at least 2 people per group, and group sizes differing by at most 1 within each assignment. Please adjust the fixed groups, types or grouping mode.`);
     groupCounts.forEach((k, round) => {
-      if (k !== null && !allowed.includes(k)) throw new Error(`作业 ${round + 1} 的 ${k} 组不满足${fixedGroups.length ? '固定小组、类型与' : '同类组队与'}均匀人数要求；可行组数为 ${allowed.join('、')}。`);
+      if (k !== null && !allowed.includes(k)) throw domainError(`作业 ${round + 1} 的 ${k} 组不满足${fixedGroups.length ? '固定小组、类型与' : '同类组队与'}均匀人数要求；可行组数为 ${allowed.join('、')}。`, `Assignment ${round + 1} cannot use ${k} groups while satisfying ${fixedGroups.length ? 'the fixed-group, type and balanced-size rules' : 'the within-type and balanced-size rules'}. Feasible group counts: ${allowed.join(', ')}.`);
     });
   }
   return normalized;
@@ -152,7 +158,7 @@ export function getAutomaticGroupCounts(config) {
 
 /** 推荐不受逐轮手动组数限制。未填写偏好时仅以约 4 人排序，不改变求解约束。 */
 export function getSizeOptions(config) {
-  if (!config || typeof config !== 'object') throw new Error('请提供有效的分组设置。');
+  if (!config || typeof config !== 'object') throw domainError('请提供有效的分组设置。', 'Please provide valid grouping settings.');
   const normalized = validateConfig({ ...config, groupCounts: undefined });
   const preferred = normalized.preferredSize ?? 4;
   const context = typeContext(normalized);
@@ -167,47 +173,48 @@ export function getSizeOptions(config) {
 }
 
 export function validateSchedule(assignments, n, config) {
-  integer(n, LIMITS.minPeople, LIMITS.maxPeople, '总人数');
-  if (!Array.isArray(assignments) || assignments.length < 1 || assignments.length > LIMITS.maxRounds) throw new Error(`作业次数须为 1 至 ${LIMITS.maxRounds}。`);
+  integer(n, LIMITS.minPeople, LIMITS.maxPeople, '总人数', 'Total number of people');
+  if (!Array.isArray(assignments) || assignments.length < 1 || assignments.length > LIMITS.maxRounds) throw domainError(`作业次数须为 1 至 ${LIMITS.maxRounds}。`, `The number of assignments must be between 1 and ${LIMITS.maxRounds}.`);
   const normalized = config ? validateConfig(config) : null;
-  if (normalized && (normalized.people !== n || normalized.rounds !== assignments.length)) throw new Error('分组与总人数或作业次数不一致。');
+  if (normalized && (normalized.people !== n || normalized.rounds !== assignments.length)) throw domainError('分组与总人数或作业次数不一致。', 'The schedule does not match the total number of people or assignments.');
   const context = normalized ? typeContext(normalized) : null;
   const automaticCounts = normalized ? effectiveAutomaticCounts(normalized) : null;
   for (let r = 0; r < assignments.length; r += 1) {
     const round = assignments[r];
-    if (!Array.isArray(round)) throw new Error(`作业 ${r + 1} 的分组无效。`);
+    if (!Array.isArray(round)) throw domainError(`作业 ${r + 1} 的分组无效。`, `Assignment ${r + 1} has invalid groups.`);
     const expectedSizes = balancedSizes(n, round.length);
-    if (normalized?.groupCounts[r] != null && normalized.groupCounts[r] !== round.length) throw new Error(`作业 ${r + 1} 的组数与设置不一致。`);
+    if (normalized?.groupCounts[r] != null && normalized.groupCounts[r] !== round.length) throw domainError(`作业 ${r + 1} 的组数与设置不一致。`, `The group count for assignment ${r + 1} does not match the settings.`);
     if (normalized?.groupCounts[r] === null && !automaticCounts.includes(round.length)) {
       const requirement = normalized.preferredSize === null ? '当前固定小组与类型组队约束' : `每组期望人数 ${normalized.preferredSize} 人`;
-      throw new Error(`作业 ${r + 1} 的组数不符合${requirement}；自动可选组数为 ${automaticCounts.join('、')}。`);
+      const requirementEn = normalized.preferredSize === null ? 'the current fixed-group and type constraints' : `the preferred group size of ${normalized.preferredSize}`;
+      throw domainError(`作业 ${r + 1} 的组数不符合${requirement}；自动可选组数为 ${automaticCounts.join('、')}。`, `The group count for assignment ${r + 1} does not satisfy ${requirementEn}. Automatic group-count options: ${automaticCounts.join(', ')}.`);
     }
-    if (round.some((group) => !Array.isArray(group))) throw new Error('每个小组须为成员列表。');
+    if (round.some((group) => !Array.isArray(group))) throw domainError('每个小组须为成员列表。', 'Each group must be a list of members.');
     const sizes = round.map((group) => group.length).sort((a, b) => b - a);
-    if (sizes.some((size, i) => size !== expectedSizes[i])) throw new Error(`作业 ${r + 1} 必须均匀分组，每组至少两人，大小最多相差一人。`);
+    if (sizes.some((size, i) => size !== expectedSizes[i])) throw domainError(`作业 ${r + 1} 必须均匀分组，每组至少两人，大小最多相差一人。`, `Assignment ${r + 1} must have balanced groups of at least 2 people, with group sizes differing by at most 1.`);
     const seen = new Set();
     for (const group of round) {
       for (const id of group) {
-        integer(id, 1, n, '成员编号');
-        if (seen.has(id)) throw new Error(`作业 ${r + 1} 的 ${id} 号同学重复出现。`);
+        integer(id, 1, n, '成员编号', 'Member ID');
+        if (seen.has(id)) throw domainError(`作业 ${r + 1} 的 ${id} 号同学重复出现。`, `Person ${id} appears more than once in assignment ${r + 1}.`);
         seen.add(id);
       }
     }
-    if (seen.size !== n) throw new Error(`作业 ${r + 1} 必须包含全部 ${n} 位同学。`);
+    if (seen.size !== n) throw domainError(`作业 ${r + 1} 必须包含全部 ${n} 位同学。`, `Assignment ${r + 1} must include all ${n} people.`);
     for (const fixed of normalized?.fixedGroups ?? []) {
       if (!round.some((group) => group.length === fixed.length && fixed.every((id) => group.includes(id)))) {
-        throw new Error(`作业 ${r + 1} 的固定小组（${fixed.join('、')} 号）必须完整保留，不能加人、拆分或交换成员。`);
+        throw domainError(`作业 ${r + 1} 的固定小组（${fixed.join('、')} 号）必须完整保留，不能加人、拆分或交换成员。`, `The fixed group with members ${fixed.join(', ')} must remain intact in assignment ${r + 1}. Members cannot be added, split into other groups or exchanged.`);
       }
     }
     const rotatingRound = context ? round.filter((group) => context.fixedGroupIndex[group[0] - 1] === -1) : round;
     if (normalized?.typeMode === 'within') {
       for (const group of rotatingRound) {
-        if (group.some((id) => normalized.types[id - 1] !== normalized.types[group[0] - 1])) throw new Error(`作业 ${r + 1} 违反同类组队要求。`);
+        if (group.some((id) => normalized.types[id - 1] !== normalized.types[group[0] - 1])) throw domainError(`作业 ${r + 1} 违反同类组队要求。`, `Assignment ${r + 1} violates the requirement to group members within the same type.`);
       }
     } else if (normalized?.typeMode === 'mix') {
       for (const label of new Set(normalized.types)) {
         const amounts = rotatingRound.map((group) => group.reduce((sum, id) => sum + Number(normalized.types[id - 1] === label), 0));
-        if (Math.max(...amounts) - Math.min(...amounts) > 1) throw new Error(`作业 ${r + 1} 的类型「${label}」未均匀分散到各组。`);
+        if (Math.max(...amounts) - Math.min(...amounts) > 1) throw domainError(`作业 ${r + 1} 的类型「${label}」未均匀分散到各组。`, `Type “${typeLabelEn(label)}” is not evenly distributed across the rotating groups in assignment ${r + 1}.`);
       }
     }
   }
@@ -293,22 +300,22 @@ export function analyzeSchedule(assignments, n, config) {
 }
 
 export function getPersonSummary(assignments, n, id, config) {
-  integer(id, 1, n, '成员编号');
+  integer(id, 1, n, '成员编号', 'Member ID');
   return analyzeSchedule(assignments, n, config).people[id - 1];
 }
 
 export function defaultNames(n) {
-  integer(n, LIMITS.minPeople, LIMITS.maxPeople, '总人数');
+  integer(n, LIMITS.minPeople, LIMITS.maxPeople, '总人数', 'Total number of people');
   return Array.from({ length: n }, (_, i) => `${i + 1}号`);
 }
 
 export function parseNames(text, n) {
-  integer(n, LIMITS.minPeople, LIMITS.maxPeople, '总人数');
-  if (typeof text !== 'string') throw new Error('请按每行一人的格式输入姓名。');
+  integer(n, LIMITS.minPeople, LIMITS.maxPeople, '总人数', 'Total number of people');
+  if (typeof text !== 'string') throw domainError('请按每行一人的格式输入姓名。', 'Enter names as text, with one person per line.');
   const names = text.split(/\r\n?|\n/u).map((name) => name.trim()).filter(Boolean);
-  if (names.length !== n) throw new Error(`请填写恰好 ${n} 位同学，当前为 ${names.length} 位。`);
+  if (names.length !== n) throw domainError(`请填写恰好 ${n} 位同学，当前为 ${names.length} 位。`, `Enter exactly ${n} names; ${names.length} were provided.`);
   const tooLong = names.findIndex((name) => Array.from(name).length > 20);
-  if (tooLong !== -1) throw new Error(`第 ${tooLong + 1} 位同学的姓名不能超过 20 个字符。`);
+  if (tooLong !== -1) throw domainError(`第 ${tooLong + 1} 位同学的姓名不能超过 20 个字符。`, `The name for person ${tooLong + 1} cannot exceed 20 characters.`);
   return names;
 }
 
@@ -321,7 +328,7 @@ function squaredCoverage(metrics) {
 
 /** 正式目标包含个人最小覆盖、不同搭档总数、覆盖离散程度。 */
 export function compareMetrics(a, b, objective = 'fair') {
-  if (!['fair', 'coverage'].includes(objective)) throw new Error('无效的比较目标。');
+  if (!['fair', 'coverage'].includes(objective)) throw domainError('无效的比较目标。', 'The comparison objective is invalid.');
   const minimum = (metrics) => metrics.rotatingMinimumTeammates ?? metrics.minimumTeammates;
   const unique = (metrics) => metrics.rotatingUniquePairs ?? metrics.uniquePairs;
   const minDifference = minimum(a) - minimum(b);
@@ -389,6 +396,7 @@ function proofFor(config, metrics) {
   return {
     optimal,
     label: optimal ? '已证明覆盖目标最优' : '预算内找到的最佳方案',
+    labelEn: optimal ? 'Proven optimal for the coverage objectives' : 'Best solution found within the search budget',
     reason: optimal
       ? (metrics.rotatingPeople === 0
         ? '所有同学都在固定小组中，每次作业完整保留这些小组；没有需要轮换的成员，当前约束下的合作关系已全部覆盖。'
@@ -400,6 +408,17 @@ function proofFor(config, metrics) {
         ? '每个人都已与其余全部同学合作；个人最小覆盖、总覆盖与覆盖公平度都达到理论最优。此证明不包含重复碰面次数最少。'
         : `${config.fixedGroups.length ? '轮换成员的' : '个人'}最小覆盖和不同搭档总数都达到当前约束下的有效上界，覆盖离散程度也达到整数理论下界。此证明不包含重复碰面次数最少。`)
       : '当前方案满足全部分组约束，但尚未取得全局最优证明；更长搜索或不同种子可能找到更好的方案。',
+    reasonEn: optimal
+      ? (metrics.rotatingPeople === 0
+        ? 'Everyone belongs to a fixed group, and these groups remain intact in every assignment. There are no rotating members, and all cooperation relationships permitted by the current constraints are covered.'
+        : fullyEligible && config.fixedGroups.length
+        ? 'The fixed groups remain intact, and rotating members have covered every cooperation relationship permitted by the fixed-group boundaries and type rules. Their minimum coverage, total coverage and coverage balance are optimal. This does not prove that repeat meetings are minimized.'
+        : fullyEligible && config.typeMode === 'within'
+        ? 'Everyone has worked with every other person of the same type. Minimum individual coverage, total coverage and coverage balance are optimal under the within-type restriction. This does not prove that repeat meetings are minimized.'
+        : metrics.uniquePairs === metrics.possiblePairs
+        ? 'Everyone has worked with every other person. Minimum individual coverage, total coverage and coverage balance have all reached their theoretical optima. This does not prove that repeat meetings are minimized.'
+        : `${config.fixedGroups.length ? 'The minimum coverage of rotating members' : 'Minimum individual coverage'} and the number of distinct teammate pairs have reached valid upper bounds under the current constraints. Coverage dispersion has also reached its integer lower bound. This does not prove that repeat meetings are minimized.`)
+      : 'This solution satisfies all grouping constraints, but global optimality has not been proved. A longer search or a different seed may find a better solution.',
     ...bounds,
   };
 }
@@ -600,9 +619,9 @@ function attemptSwap(state, round, random, objective, scratch) {
 export function solveSchedule(rawConfig, options = {}) {
   const config = validateConfig(rawConfig);
   const { timeBudgetMs = 4000, onProgress, maxIterations } = options;
-  if (!Number.isFinite(timeBudgetMs) || timeBudgetMs < 1 || timeBudgetMs > 30000) throw new Error('搜索预算须为 1 至 30000 毫秒。');
-  if (maxIterations != null) integer(maxIterations, 0, 10000000, '最大迭代次数');
-  if (onProgress != null && typeof onProgress !== 'function') throw new Error('进度回调须为函数。');
+  if (!Number.isFinite(timeBudgetMs) || timeBudgetMs < 1 || timeBudgetMs > 30000) throw domainError('搜索预算须为 1 至 30000 毫秒。', 'The search time budget must be between 1 and 30000 milliseconds.');
+  if (maxIterations != null) integer(maxIterations, 0, 10000000, '最大迭代次数', 'Maximum iteration count');
+  if (onProgress != null && typeof onProgress !== 'function') throw domainError('进度回调须为函数。', 'The progress callback must be a function.');
   const now = () => globalThis.performance?.now?.() ?? Date.now();
   const started = now();
   const deadline = started + timeBudgetMs;
@@ -733,7 +752,7 @@ export function solveSchedule(rawConfig, options = {}) {
       || metrics.rotatingUniquePairs !== bestMetrics.rotatingUniquePairs
       || metrics.rotatingMinimumTeammates !== bestMetrics.rotatingMinimumTeammates
       || metrics.rotatingSumSquaredTeammates !== bestMetrics.rotatingSumSquaredTeammates
-      || metrics.repeatMeetings !== bestMetrics.repeatMeetings) throw new Error('分组统计校验失败，请重新计算。');
+      || metrics.repeatMeetings !== bestMetrics.repeatMeetings) throw domainError('分组统计校验失败，请重新计算。', 'The grouping statistics failed verification. Please solve again.');
   return {
     config, assignments, metrics, proof: proofFor(config, metrics),
     search: { seed: config.seed, iterations, elapsedMs: Math.round(now() - started), timeLimitReached, workLimitReached: iterations >= iterationLimit },

@@ -1,13 +1,15 @@
 import {
   LIMITS, validateConfig, validateSchedule, analyzeSchedule, evaluateProof,
   compareMetrics, parseNames, defaultNames, getSizeOptions, getAutomaticGroupCounts, normalizeFixedGroups,
-} from './grouping.js?v=colors-1';
-import { quickTypeSizes, createQuickTypePlan, normalizeTypeLabels } from './type-editor.js?v=colors-1';
+} from './grouping.js?v=i18n-1';
+import { quickTypeSizes, createQuickTypePlan, normalizeTypeLabels } from './type-editor.js?v=i18n-1';
+import { t, getLanguage, setLanguage, errorText, proofText, localizeType, localizeName, applyPageTranslations } from './i18n.js?v=i18n-1';
+import { appMessages } from './app-messages.js?v=i18n-1';
 
 const $ = selector => document.querySelector(selector);
 const objectives = ['fair', 'coverage'];
-const titles = { fair: '机会均衡', coverage: '整体覆盖' };
-const typeTitles = { off: '不区分类型', mix: '不同类型混合', within: '同类型内组队' };
+const titles = { get fair() { return t('app.goal.fair'); }, get coverage() { return t('app.goal.coverage'); } };
+const typeTitles = { get off() { return t('app.type.off'); }, get mix() { return t('app.type.mix'); }, get within() { return t('app.type.within'); } };
 const STORAGE_KEY = 'groupme.v2';
 const TIME_BUDGET = 4000;
 const state = {
@@ -21,6 +23,22 @@ let typeDraft = Array(14).fill('未分类');
 let fixedDraft = [];
 let restoredDraft = null;
 let statusTimer;
+const messageBindings = new Map();
+const messageValue = value => typeof value === 'function' ? value() : value;
+const joinList = values => values.join(t('app.listSeparator'));
+const typeLabel = (id, result) => localizeType(typeOf(id, result));
+function setMessage(selector, value) {
+  const text = messageValue(value);
+  $(selector).textContent = text;
+  messageBindings.set(selector, { value, text });
+}
+function setError(selector, error) { setMessage(selector, () => errorText(error)); }
+function uiError(key, params = {}) {
+  const interpolate = text => text.replace(/\{([\w]+)\}/g, (_, name) => String(params[name] ?? `{${name}}`));
+  const error = new Error(interpolate(appMessages[key].zh));
+  error.messageEn = interpolate(appMessages[key].en);
+  return error;
+}
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -30,17 +48,18 @@ function node(tag, className, text) {
 }
 function announce(message) {
   clearTimeout(statusTimer);
-  $('#status').textContent = message;
+  setMessage('#status', message);
   statusTimer = setTimeout(() => { $('#status').textContent = ''; }, 10000);
 }
 function currentResult() { return state.results[state.objective]; }
 function hasFixed(result) { return Boolean(result.config.fixedGroups?.length); }
 function fixedGroupIndex(id, result) { return (result.config.fixedGroups ?? []).findIndex(group => group.includes(id)); }
 function objectiveMinimum(result) { return hasFixed(result) ? result.metrics.rotatingMinimumTeammates : result.metrics.minimumTeammates; }
-function nameOf(id) { return state.names[id - 1] || `${id}号`; }
+function rawNameOf(id) { return state.names[id - 1] || `${id}号`; }
+function nameOf(id) { return localizeName(rawNameOf(id), id); }
 function displayName(id) {
-  return state.names.slice(0, state.config.people).filter(name => name === nameOf(id)).length > 1
-    ? `${nameOf(id)}（${id}号）` : nameOf(id);
+  return state.names.slice(0, state.config.people).filter(name => name === rawNameOf(id)).length > 1
+    ? t('app.nameWithId', { name: nameOf(id), id }) : nameOf(id);
 }
 function ensureNames(people) {
   for (let i = state.names.length; i < people; i++) state.names.push(`${i + 1}号`);
@@ -52,7 +71,7 @@ function typeMode() { return $('input[name="type-mode"]:checked').value; }
 function typeOf(id, result = currentResult()) { return result?.config.types?.[id - 1] ?? '未分类'; }
 function showTypes(result) { return result.config.typeMode !== 'off' || result.config.types.some(type => type !== '未分类'); }
 function typeRelation(id, result) { return typeOf(id, result) === typeOf(state.person, result) ? 'same' : 'different'; }
-function typeRelationText(id, result) { return `类型 ${typeOf(id, result)}，与当前同学${typeRelation(id, result) === 'same' ? '同类型' : '不同类型'}`; }
+function typeRelationText(id, result) { return t(typeRelation(id, result) === 'same' ? 'app.typeRelation.same' : 'app.typeRelation.different', { type: typeLabel(id, result) }); }
 function typeCounts(types) {
   const counts = new Map();
   types.forEach(type => counts.set(type, (counts.get(type) ?? 0) + 1));
@@ -72,7 +91,7 @@ function save(message = '') {
     const draft = { people: draftPeople(), rounds: Number($('#rounds-input').value), groupCounts: roundDraft, typeMode: typeMode(), preferredSize: preferredSize() };
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, ...state, typeDraft, fixedDraft, draft, results: savedResults }));
     if (message) announce(message);
-  } catch { announce(`${message ? message + ' ' : ''}浏览器无法保存设置，刷新后可能丢失；本次仍可使用和复制。`); }
+  } catch { announce(() => `${message ? messageValue(message) + ' ' : ''}${t('app.storageUnavailable')}`); }
 }
 function restore() {
   try {
@@ -119,11 +138,11 @@ function restore() {
         if (oldCounts[old.plan]) {
           state.names = names;
           state.config = { people: 14, rounds: 2, groupCounts: oldCounts[old.plan], seed: 1 };
-          announce('已保留原有姓名和组数，正在为新工具计算方案。');
+          announce(() => t('app.migrated'));
         }
       }
     }
-  } catch { announce('保存的设置无法读取，已恢复默认设置，可以重新填写姓名。'); }
+  } catch { announce(() => t('app.restoreFailed')); }
 }
 function sameSettings(a, b) {
   const same = a.people === b.people && a.rounds === b.rounds && JSON.stringify(a.groupCounts) === JSON.stringify(b.groupCounts)
@@ -136,12 +155,12 @@ function sameSettings(a, b) {
 function sizeDescription(sizes) {
   const counts = new Map();
   sizes.forEach(size => counts.set(size, (counts.get(size) ?? 0) + 1));
-  if (counts.size === 1) return `每组 ${sizes[0]} 人`;
-  return [...counts].sort(([a], [b]) => b - a).map(([size, count]) => `${count} 组 ${size} 人`).join(' + ');
+  if (counts.size === 1) return t('app.size.each', { size: sizes[0] });
+  return [...counts].sort(([a], [b]) => b - a).map(([size, count]) => t('app.size.composition', { count, size })).join(' + ');
 }
 function sizeSettingDescription(config) {
-  if (config.preferredSize == null) return '每组人数不限';
-  return `期望每组 ${config.preferredSize} 人${config.groupCounts.some(count => count !== null) ? '（手动组数优先）' : ''}`;
+  if (config.preferredSize == null) return t('app.size.unrestricted');
+  return t('app.size.preferred', { size: config.preferredSize }) + (config.groupCounts.some(count => count !== null) ? t('app.size.manualSuffix') : '');
 }
 function renderSizePolicy(people, target, options = null) {
   snapshotDraft();
@@ -160,28 +179,28 @@ function renderSizePolicy(people, target, options = null) {
     if (policy === 'invalid' && index < rounds) invalid.push(index + 1);
     input.parentElement.dataset.policy = policy;
     input.setAttribute('aria-invalid', String(policy === 'invalid'));
-    $(`#round-policy-${index}`).textContent = policy === 'manual' ? `${count} 组优先 · 不采用期望人数`
-      : policy === 'invalid' ? !validPeople(people) ? '请先填写有效总人数' : inRange ? '组数与类型或固定小组不兼容' : `请填 3–${Math.floor(people / 2)} 的整数`
-      : !validTarget ? '自动 · 请修正期望人数' : target === null ? '自动选择组数 · 人数不限' : `按期望 ${target} 人 / 组`;
+    $(`#round-policy-${index}`).textContent = policy === 'manual' ? t('app.size.manualRound', { count })
+      : policy === 'invalid' ? !validPeople(people) ? t('app.input.validPeople') : inRange ? t('app.size.incompatible') : t('app.size.countRange', { maximum: Math.floor(people / 2) })
+      : !validTarget ? t('app.size.autoInvalid') : target === null ? t('app.size.autoUnrestricted') : t('app.size.autoPreferred', { target });
   });
   const autoCount = validRounds ? rounds - manual.length : 0;
   const allManual = validRounds && manual.length === rounds && !invalid.length;
   const status = $('#size-policy-status');
   status.dataset.policy = !validPeople(people) || !validRounds || !validTarget || invalid.length ? 'invalid' : allManual ? 'manual' : manual.length ? 'mixed' : 'auto';
-  status.textContent = !validPeople(people) ? '请先填写有效总人数' : !validRounds ? '请先填写有效作业次数'
-    : !validTarget ? '期望人数需调整' : invalid.length ? `作业 ${invalid.join('、')} 的组数需调整`
-    : allManual ? '全部已指定组数 · 期望人数不生效'
-    : manual.length ? `混用 · ${manual.length} 次指定组数 / ${autoCount} 次自动`
-    : target === null ? `全部 ${rounds} 次自动 · 人数不限` : `全部 ${rounds} 次按期望人数`;
-  $('#round-policy-summary').textContent = !validRounds ? '请先填写有效作业次数' : invalid.length ? `${invalid.length} 次输入待调整`
-    : manual.length ? `${manual.length} 次已指定 · 优先于期望人数` : '可选 · 仅覆盖对应作业';
+  status.textContent = !validPeople(people) ? t('app.input.validPeople') : !validRounds ? t('app.input.validRounds')
+    : !validTarget ? t('app.size.invalidPreferred') : invalid.length ? t('app.size.invalidRounds', { rounds: joinList(invalid) })
+    : allManual ? t('app.size.allManual')
+    : manual.length ? t('app.size.mixed', { manual: manual.length, auto: autoCount })
+    : target === null ? t('app.size.allAutoUnrestricted', { rounds }) : t('app.size.allAutoPreferred', { rounds });
+  $('#round-policy-summary').textContent = !validRounds ? t('app.input.validRounds') : invalid.length ? t('app.size.invalidCount', { count: invalid.length })
+    : manual.length ? t('app.size.manualCount', { count: manual.length }) : t('app.size.optionalOverride');
   $('#size-override-notice').hidden = !manual.length;
-  $('#size-override').textContent = !validRounds ? `请先将作业次数设为 1–${LIMITS.maxRounds} 的整数，再确认各次安排；已填写的组数暂时保留。`
-    : !validPeople(people) ? '请先填写有效总人数，再确认各次组数；已填写的组数暂时保留。'
-    : !validTarget ? '请将期望人数设为 2–300 的整数，或清空为不限；已填写的组数保持。'
-    : invalid.length ? `作业 ${invalid.join('、')} 的组数需修正后才能求解。可清空对应输入，恢复按期望人数安排。`
-    : allManual ? '期望人数与推荐暂不影响当前安排。清空某次组数，仅让该次恢复自动；也可将全部作业改为自动。'
-    : `作业 ${manual.join('、')} 优先采用指定组数；其余 ${autoCount} 次${target === null ? '自动选择组数' : '按期望人数安排'}。点击推荐不会覆盖已指定的组数。`;
+  $('#size-override').textContent = !validRounds ? t('app.size.overrideInvalidRounds', { maximum: LIMITS.maxRounds })
+    : !validPeople(people) ? t('app.size.overrideInvalidPeople')
+    : !validTarget ? t('app.size.overrideInvalidPreferred')
+    : invalid.length ? t('app.size.overrideInvalidCounts', { rounds: joinList(invalid) })
+    : allManual ? t('app.size.overrideAllManual')
+    : t(target === null ? 'app.size.overrideMixedUnrestricted' : 'app.size.overrideMixedPreferred', { rounds: joinList(manual), auto: autoCount });
   $('#auto-all-rounds').hidden = !manual.length;
   $('#auto-all-rounds').disabled = Boolean(activeJob);
   return { manual, allManual, invalid, autoCount };
@@ -193,24 +212,24 @@ function renderSizeSettings() {
   const target = preferredSize();
   renderSizePolicy(people, target);
   $('#clear-size').disabled = Boolean(activeJob) || target === null;
-  if (!validPeople(people)) { preview.textContent = '填写 6–300 人后，会自动推荐均匀分组。'; return; }
+  if (!validPeople(people)) { preview.textContent = t('app.size.enterPeople'); return; }
   ensureTypes(people);
   const base = { people, rounds: 1, typeMode: typeMode(), types: typeDraft.slice(0, people), preferredSize: target, fixedGroups: fixedDraft };
   let options;
   try { options = getSizeOptions(base); }
   catch (error) {
-    preview.textContent = error.message;
-    $('#size-policy-status').textContent = '当前设置需要调整';
+    preview.textContent = errorText(error);
+    $('#size-policy-status').textContent = t('app.size.adjustSettings');
     $('#size-policy-status').dataset.policy = 'invalid';
     if (target === null || Number.isInteger(target) && target >= 2 && target <= LIMITS.maxPeople) {
-      $('#round-policy-summary').textContent = '请先调整类型或固定小组';
+      $('#round-policy-summary').textContent = t('app.size.adjustTypesFixed');
       document.querySelectorAll('[data-round-input]').forEach((input, index) => {
         input.parentElement.dataset.policy = 'pending';
         input.removeAttribute('aria-invalid');
-        $(`#round-policy-${index}`).textContent = '类型或固定小组待调整 · 暂无可行安排';
+        $(`#round-policy-${index}`).textContent = t('app.size.noFeasibleRound');
       });
       $('#size-override-notice').hidden = false;
-      $('#size-override').textContent = '当前类型或固定小组设置下没有可行分组。请按上方提示调整；改为自动也需要满足这些规则。';
+      $('#size-override').textContent = t('app.size.noFeasibleOverride');
     }
     return;
   }
@@ -229,8 +248,8 @@ function renderSizeSettings() {
     const button = node('button', 'size-recommendation'); button.type = 'button';
     button.setAttribute('aria-pressed', String(target === value));
     button.disabled = Boolean(activeJob);
-    button.append(node('strong', '', `期望 ${value} 人 / 组`));
-    choices.forEach(option => button.append(node('span', '', `${option.groupCount} 组 · ${sizeDescription(option.sizes)}`)));
+    button.append(node('strong', '', t('app.size.recommend', { value })));
+    choices.forEach(option => button.append(node('span', '', t('app.size.option', { count: option.groupCount, sizes: sizeDescription(option.sizes) }))));
     button.addEventListener('click', () => {
       $('#size-input').value = value; $('#config-error').textContent = '';
       renderSizeSettings(); save();
@@ -238,15 +257,17 @@ function renderSizeSettings() {
     container.append(button);
   });
   if (invalid.length && autoCount === 0) {
-    preview.textContent = '各次作业均已填写组数，请先修正标记的输入；期望人数只用于组数留空的作业。';
+    preview.textContent = t('app.size.previewInvalidManual');
   } else if (allManual) {
-    preview.textContent = '所有作业都已指定组数，当前期望人数不会改变分组规模；将某次组数留空后才会应用。';
+    preview.textContent = t('app.size.previewAllManual');
   } else if (target === null) {
-    preview.textContent = '当前不限制每组人数，自动作业会搜索所有合法组数。点击推荐或填写期望人数，可以控制小组规模。';
+    preview.textContent = t('app.size.previewUnrestricted');
   } else {
     const allowed = getAutomaticGroupCounts(base);
     const chosen = options.filter(option => allowed.includes(option.groupCount));
-    preview.textContent = `自动作业最接近 ${target} 人 / 组的安排：${chosen.map(option => `${option.groupCount} 组（${sizeDescription(option.sizes)}）`).join(' 或 ')}。${chosen.length > 1 ? '同样接近，可在这些安排中优化新队友。' : '先满足这个规模，再优化新队友。'}${chosen.some(option => option.distance > 1) ? '受当前人数、至少 3 组和类型规则限制，实际人数与期望有差距。' : ''}`;
+    preview.textContent = t('app.size.previewPreferred', { target, options: chosen.map(option => t('app.size.optionDetail', { count: option.groupCount, sizes: sizeDescription(option.sizes) })).join(t('app.or')) })
+      + t(chosen.length > 1 ? 'app.size.previewTied' : 'app.size.previewOne')
+      + (chosen.some(option => option.distance > 1) ? t('app.size.previewGap') : '');
   }
 
 }
@@ -254,9 +275,9 @@ function updateLockButtons() {
   document.querySelectorAll('[data-lock-group]').forEach(button => {
     const group = button.dataset.lockGroup.split(',').map(Number);
     const already = fixedDraft.some(fixed => fixed.length === group.length && group.every(id => fixed.includes(id)));
-    button.textContent = already ? '已加入固定设置' : '固定这组';
+    button.textContent = t(already ? 'app.fixed.alreadyAdded' : 'app.fixed.lockGroup');
     button.disabled = already || Boolean(activeJob) || currentResult()?.config.people !== draftPeople();
-    button.title = currentResult()?.config.people !== draftPeople() ? '总人数已更改，请重新求解或在上方编辑固定小组。' : '加入固定设置，重新求解后各次都保持这组成员。';
+    button.title = t(currentResult()?.config.people !== draftPeople() ? 'app.fixed.peopleChanged' : 'app.fixed.lockHint');
   });
 }
 function renderFixedSettings() {
@@ -265,30 +286,30 @@ function renderFixedSettings() {
   const summary = $('#fixed-summary'); summary.replaceChildren();
   fixedDraft.forEach((group, index) => {
     const item = node('div', 'fixed-summary-item');
-    item.append(node('strong', '', `固定组 ${index + 1} · ${group.length} 人`), node('span', '', group.map(id => `${nameOf(id)}${id > people ? '（超出总人数）' : ''}`).join('、')));
+    item.append(node('strong', '', t('app.fixed.groupSize', { index: index + 1, count: group.length })), node('span', '', joinList(group.map(id => `${nameOf(id)}${id > people ? t('app.fixed.outOfRange') : ''}`))));
     summary.append(item);
   });
   const note = $('#fixed-draft-note');
   note.classList.remove('input-error');
   try {
-    if (!validPeople(people)) throw new Error('先填写有效的总人数；已有固定小组暂时保留。');
+    if (!validPeople(people)) throw uiError('app.fixed.invalidPeople');
     normalizeFixedGroups(fixedDraft, people);
     const changed = JSON.stringify(fixedDraft) !== JSON.stringify(state.config.fixedGroups ?? []);
-    note.textContent = changed && currentResult() ? '固定设置待应用。重新求解后更新；下方仍显示上次结果。'
-      : fixedDraft.length ? `共固定 ${fixedDraft.flat().length} 人，其余 ${people - fixedDraft.flat().length} 人参与轮换。` : '当前所有人参与轮换。也可以在下方结果中点击「固定这组」。';
-  } catch (error) { note.textContent = `${error.message} 请编辑固定小组或恢复总人数，已有设置没有被删除。`; note.classList.add('input-error'); }
+    note.textContent = changed && currentResult() ? t('app.fixed.pending')
+      : fixedDraft.length ? t('app.fixed.summary', { fixed: fixedDraft.flat().length, rotating: people - fixedDraft.flat().length }) : t('app.fixed.none');
+  } catch (error) { note.textContent = `${errorText(error)} ${t('app.fixed.adjustPreserved')}`; note.classList.add('input-error'); }
   updateLockButtons();
 }
 function lockResultGroup(group) {
   if (activeJob || currentResult()?.config.people !== draftPeople()) return;
   if (fixedDraft.some(fixed => fixed.length === group.length && group.every(id => fixed.includes(id)))) return;
   const overlap = fixedDraft.flat().filter(id => group.includes(id));
-  if (overlap.length) { announce(`${overlap.map(nameOf).join('、')} 已属于其他固定组。请先在「编辑固定小组」中调整，原设置保持不变。`); return; }
+  if (overlap.length) { announce(() => t('app.fixed.overlap', { names: joinList(overlap.map(nameOf)) })); return; }
   try {
     fixedDraft = normalizeFixedGroups([...fixedDraft, group], draftPeople());
     renderTypeSettings(); $('#config-error').textContent = '';
-    save('已加入固定设置。重新求解后，这组在每次作业都保持原成员。');
-  } catch (error) { announce(error.message); }
+    save(() => t('app.fixed.added'));
+  } catch (error) { announce(() => errorText(error)); }
 }
 function renderTypeSettings() {
   renderSizeSettings();
@@ -297,22 +318,18 @@ function renderTypeSettings() {
   const valid = validPeople(people);
   const mode = typeMode();
   $('#edit-types').disabled = !valid || Boolean(activeJob);
-  $('#type-policy-hint').textContent = {
-    off: '只考虑新队友，不使用类型限制。类型标签可以提前保存。',
-    mix: '把每种类型均匀分散到轮换小组，让同类型尽量分开，再优化新队友。固定组保留原成员。',
-    within: '轮换小组只含相同类型；固定组保留原成员。所有小组仍保持人数差至多 1。',
-  }[mode];
+  $('#type-policy-hint').textContent = t(`app.type.hint.${mode}`);
   const summary = $('#type-summary');
   summary.replaceChildren();
-  if (!valid) { $('#type-draft-note').textContent = '先填写有效的总人数，再编辑对应同学的类型。'; return; }
+  if (!valid) { $('#type-draft-note').textContent = t('app.type.invalidPeople'); return; }
   ensureTypes(people);
   const counts = typeCounts(typeDraft.slice(0, people));
-  counts.forEach(([type, count]) => summary.append(node('span', 'type-badge', `${type} · ${count} 人`)));
+  counts.forEach(([type, count]) => summary.append(node('span', 'type-badge', t('app.type.badge', { type: localizeType(type), count }))));
   const changed = state.config.people !== people || (state.config.typeMode ?? 'off') !== mode || JSON.stringify(state.config.types ?? Array(state.config.people).fill('未分类')) !== JSON.stringify(typeDraft.slice(0, people));
   $('#type-draft-note').textContent = counts.length === 1 && mode !== 'off'
-    ? `当前所有人都是“${counts[0][0]}”。编辑为不同标签后，类型才会影响分组。${changed ? '重新求解后生效。' : ''}`
-    : changed && currentResult() ? '类型设置待应用，点击「求解并比较两种方案」后更新；下方仍显示上次结果。'
-    : '标签可自由填写，例如基础、进阶、熟练。空白归为“未分类”，也作为一种类型。';
+    ? t('app.type.allSame', { type: localizeType(counts[0][0]) }) + (changed ? t('app.type.solveToApply') : '')
+    : changed && currentResult() ? t('app.type.pending')
+    : t('app.type.exampleHint');
 }
 function snapshotDraft() {
   const fields = document.querySelectorAll('[data-round-input]');
@@ -327,17 +344,27 @@ function renderRoundInputs() {
   container.replaceChildren();
   const maximum = Math.floor(people / 2);
   for (let i = 0; i < rounds; i++) {
-    const label = node('label', '', `作业 ${i + 1}`);
+    const label = node('label');
+    const caption = node('span', '', t('app.assignment', { number: i + 1 })); caption.dataset.roundLabel = String(i); label.append(caption);
     const input = node('input');
     input.type = 'number'; input.min = '3'; input.max = String(maximum); input.step = '1';
-    input.placeholder = '自动'; input.dataset.roundInput = String(i); input.setAttribute('aria-label', `作业 ${i + 1} 的组数，留空自动`);
+    input.placeholder = t('app.automatic'); input.dataset.roundInput = String(i); input.setAttribute('aria-label', t('app.roundCountAria', { number: i + 1 }));
     input.value = roundDraft[i] ?? '';
     const hint = node('small'); hint.id = `round-policy-${i}`;
     input.setAttribute('aria-describedby', hint.id);
     label.append(input, hint); container.append(label);
   }
-  $('#group-range').textContent = Number.isInteger(people) && people >= LIMITS.minPeople && people <= LIMITS.maxPeople
-    ? `每次总组数（包含固定组）为 3–${maximum} 组；实际还须满足类型与固定小组设置。` : '每次至少 3 组、每组至少 2 人，总人数至少为 6。';
+  updateRoundInputLanguage();
+}
+function updateRoundInputLanguage() {
+  document.querySelectorAll('[data-round-input]').forEach(input => {
+    const number = Number(input.dataset.roundInput) + 1;
+    input.placeholder = t('app.automatic');
+    input.setAttribute('aria-label', t('app.roundCountAria', { number }));
+    input.parentElement.querySelector('[data-round-label]').textContent = t('app.assignment', { number });
+  });
+  const people = draftPeople();
+  $('#group-range').textContent = validPeople(people) ? t('app.groupRange', { maximum: Math.floor(people / 2) }) : t('app.groupMinimum');
 }
 function fillSettings() {
   const settings = restoredDraft ?? state.config;
@@ -374,7 +401,7 @@ function setBusy(busy) {
   $('#auto-all-rounds').disabled = busy;
   $('#settings').setAttribute('aria-busy', String(busy));
 }
-function resultQuality(result) { return result.proof.optimal ? '已证明覆盖目标最优' : '本次找到的最好方案 · 未证明全局最优'; }
+function resultQuality(result) { return t(result.proof.optimal ? 'app.result.proven' : 'app.result.bestFound'); }
 function renderComparison() {
   for (const goal of objectives) {
     const result = state.results[goal];
@@ -385,24 +412,24 @@ function renderComparison() {
     numbers.replaceChildren();
     if (result) {
       const minimum = node('span');
-      if (hasFixed(result) && result.metrics.rotatingPeople === 0) minimum.append(node('small', '', '全部固定 · 无需轮换'));
-      else minimum.append(node('small', '', hasFixed(result) ? '轮换者至少' : '每人至少'), node('strong', '', String(objectiveMinimum(result))), node('small', '', '位'));
+      if (hasFixed(result) && result.metrics.rotatingPeople === 0) minimum.append(node('small', '', t('app.result.allFixed')));
+      else minimum.append(node('small', '', t(hasFixed(result) ? 'app.result.rotatingMinimum' : 'app.result.minimum')), node('strong', '', String(objectiveMinimum(result))), node('small', '', t('app.peopleUnit')));
       const pairs = node('span');
-      pairs.append(node('small', '', '不同搭档'), node('strong', '', String(result.metrics.uniquePairs)), node('small', '', '对'));
+      pairs.append(node('small', '', t('app.result.uniquePairs')), node('strong', '', String(result.metrics.uniquePairs)), node('small', '', t('app.pairsUnit')));
       numbers.append(minimum, pairs);
       $(`#${goal}-quality`).textContent = resultQuality(result);
     } else {
-      numbers.textContent = '等待求解';
+      numbers.textContent = t('app.result.waiting');
       $(`#${goal}-quality`).textContent = '';
     }
   }
   if (Object.keys(state.results).length) {
-    $('#result-context').textContent = `当前结果：${state.config.people} 人 · ${state.config.rounds} 次作业 · ${sizeSettingDescription(state.config)} · ${typeTitles[state.config.typeMode ?? 'off']}${state.config.fixedGroups?.length ? ` · 固定 ${state.config.fixedGroups.length} 组` : ''}`;
+    $('#result-context').textContent = t('app.result.context', { people: state.config.people, rounds: state.config.rounds, size: sizeSettingDescription(state.config), type: typeTitles[state.config.typeMode ?? 'off'] }) + (state.config.fixedGroups?.length ? t('app.result.fixedSuffix', { count: state.config.fixedGroups.length }) : '');
   }
   const { fair, coverage } = state.results;
   $('#comparison-note').textContent = fair && coverage && fair.metrics.uniquePairs === coverage.metrics.uniquePairs && objectiveMinimum(fair) === objectiveMinimum(coverage)
-    ? '两种目标在最低个人覆盖和全班搭档总数上达到相同结果；具体名单可能不同。'
-    : '点击其中一种目标查看完整安排；比较最低个人覆盖和全班搭档总数。';
+    ? t('app.result.sameMetrics')
+    : t('app.result.compareHint');
 }
 function renderRound() {
   const result = currentResult();
@@ -410,38 +437,38 @@ function renderRound() {
   const current = result.assignments[state.round];
   const metrics = result.metrics.rounds[state.round];
   const sizes = [...new Set(current.map(group => group.length))].sort((a,b) => a-b);
-  $('#round-summary').textContent = `${current.length} 组 · 每组 ${sizes.join('–')} 人 · 这次新增 ${metrics.uniqueNewPairs} 对搭档`;
+  $('#round-summary').textContent = t('app.round.summary', { groups: current.length, sizes: sizes.join('–'), pairs: metrics.uniqueNewPairs });
   const container = $('#groups');
   container.replaceChildren();
   current.forEach((group, index) => {
     const section = node('section', 'group');
-    section.setAttribute('aria-label', `作业 ${state.round + 1} 第 ${index + 1} 组`);
+    section.setAttribute('aria-label', t('app.round.groupAria', { round: state.round + 1, group: index + 1 }));
     const heading = node('div', 'group-heading');
-    heading.append(node('strong', '', `第 ${index + 1} 组`), node('span', '', `${group.length} 人`));
+    heading.append(node('strong', '', t('app.group', { number: index + 1 })), node('span', '', t('app.peopleCount', { count: group.length })));
     const people = node('div', 'group-people');
     group.forEach(id => {
       const button = node('button', 'person-chip', nameOf(id));
       button.type = 'button'; button.dataset.person = String(id);
-      button.setAttribute('aria-label', `查看 ${displayName(id)} 的合作情况`);
+      button.setAttribute('aria-label', t('app.person.inspect', { name: displayName(id) }));
       button.title = displayName(id);
-      if (nameOf(id) !== `${id}号`) button.append(node('small', '', String(id)));
+      if (rawNameOf(id) !== `${id}号`) button.append(node('small', '', String(id)));
       if (showTypes(result)) {
-        button.append(node('span', 'chip-type', typeOf(id, result)));
-        button.setAttribute('aria-label', `查看 ${displayName(id)}（${typeOf(id, result)}）的合作情况`);
+        button.append(node('span', 'chip-type', typeLabel(id, result)));
+        button.setAttribute('aria-label', t('app.person.inspectTyped', { name: displayName(id), type: typeLabel(id, result) }));
       }
       button.addEventListener('click', () => { state.person = id; renderPerson(); save(); });
       people.append(button);
     });
     section.append(heading, people);
-    if (showTypes(result)) section.append(node('p', 'group-types', typeCounts(group.map(id => typeOf(id, result))).map(([type, count]) => `${type} ${count} 人`).join(' · ')));
+    if (showTypes(result)) section.append(node('p', 'group-types', typeCounts(group.map(id => typeOf(id, result))).map(([type, count]) => t('app.type.count', { type: localizeType(type), count })).join(' · ')));
     const fixedIndex = fixedGroupIndex(group[0], result);
     if (fixedIndex >= 0) {
       section.dataset.fixed = 'true';
-      section.append(node('p', 'fixed-group-badge', `固定组 ${fixedIndex + 1} · 不换人`));
+      section.append(node('p', 'fixed-group-badge', t('app.fixed.unchanged', { index: fixedIndex + 1 })));
     } else {
-      const lock = node('button', 'lock-group', '固定这组'); lock.type = 'button';
+      const lock = node('button', 'lock-group', t('app.fixed.lockGroup')); lock.type = 'button';
       lock.dataset.lockGroup = group.join(',');
-      lock.setAttribute('aria-label', `固定作业 ${state.round + 1} 第 ${index + 1} 组`);
+      lock.setAttribute('aria-label', t('app.fixed.lockAria', { round: state.round + 1, group: index + 1 }));
       lock.addEventListener('click', () => lockResultGroup(group));
       section.append(lock);
     }
@@ -460,25 +487,25 @@ function renderPerson(shouldAnnounce = true) {
   const within = result.config.typeMode === 'within';
   const eligible = person.eligibleTeammates;
   const fixedIndex = fixedGroupIndex(state.person, result);
-  const scope = fixedIndex >= 0 ? '固定组伙伴' : hasFixed(result) ? `可合作的${within ? '同类型' : ''}轮换同学` : `${within ? '同类型' : '其他'}同学`;
-  $('#person-total').textContent = `/ ${eligible} 位${scope}`;
+  const scope = t(fixedIndex >= 0 ? 'app.scope.fixed' : hasFixed(result) ? within ? 'app.scope.rotatingWithin' : 'app.scope.rotating' : within ? 'app.scope.within' : 'app.scope.class');
+  $('#person-total').textContent = t('app.person.total', { count: eligible, scope });
   $('#person-fixed-note').hidden = !hasFixed(result);
-  $('#person-fixed-note').textContent = fixedIndex >= 0 ? `固定组 ${fixedIndex + 1} · 每次保持原组，不与组外同学交换。` : '参与轮换 · 可合作范围不包含固定组成员。';
+  $('#person-fixed-note').textContent = fixedIndex >= 0 ? t('app.person.fixedNote', { index: fixedIndex + 1 }) : t('app.person.rotatingNote');
   const typed = showTypes(result);
   $('#person-type').hidden = !typed;
-  $('#person-type').textContent = `类型：${typeOf(state.person, result)}`;
+  $('#person-type').textContent = t('app.person.type', { type: typeLabel(state.person, result) });
   $('#type-legend').hidden = !typed;
-  $('#type-reference').textContent = `边框以当前同学 ${displayName(state.person)}（${typeOf(state.person, result)}）为参照；颜色仍表示新旧队友。`;
+  $('#type-reference').textContent = t('app.person.typeReference', { name: displayName(state.person), type: typeLabel(state.person, result) });
   $('#person-bar').style.width = `${eligible ? person.uniqueCount / eligible * 100 : 0}%`;
-  $('#person-caption').textContent = person.uniqueCount === eligible ? fixedIndex >= 0 ? '固定组内伙伴已全部合作，后续保持原组。' : `已经和每一位${scope}合作。` : `可合作范围内还有 ${eligible - person.uniqueCount} 位同学尚未合作。`;
-  $('#mate-title').textContent = `作业 ${state.round + 1} · 第 ${thisRound.groupIndex + 1} 组 · ${thisRound.newTeammates.length} 位新队友`;
+  $('#person-caption').textContent = person.uniqueCount === eligible ? fixedIndex >= 0 ? t('app.person.fixedComplete') : t('app.person.complete', { scope }) : t('app.person.remaining', { count: eligible - person.uniqueCount });
+  $('#mate-title').textContent = t('app.person.roundTitle', { round: state.round + 1, group: thisRound.groupIndex + 1, count: thisRound.newTeammates.length });
   const mates = $('#mate-list'); mates.replaceChildren();
   thisRound.teammates.forEach(id => {
     const button = node('button', 'person-chip', displayName(id)); button.type = 'button';
     button.dataset.relation = thisRound.newTeammates.includes(id) ? 'fresh' : 'known';
     button.dataset.typeRelation = typed ? typeRelation(id, result) : '';
-    if (typed) button.append(node('span', 'chip-type', typeOf(id, result)));
-    button.setAttribute('aria-label', `${displayName(id)}，${thisRound.newTeammates.includes(id) ? '本次新队友' : '之前已合作'}${typed ? `，${typeRelationText(id, result)}` : ''}，查看合作情况`);
+    if (typed) button.append(node('span', 'chip-type', typeLabel(id, result)));
+    button.setAttribute('aria-label', t('app.person.relationAria', { name: displayName(id), relation: t(thisRound.newTeammates.includes(id) ? 'app.relation.fresh' : 'app.relation.previous'), type: typed ? t('app.ariaSeparator') + typeRelationText(id, result) : '' }));
     button.addEventListener('click', () => { state.person = id; renderPerson(); save(); $('#person-select').focus({ preventScroll:true }); });
     mates.append(button);
   });
@@ -487,20 +514,20 @@ function renderPerson(shouldAnnounce = true) {
     button.setAttribute('aria-pressed', String(id === state.person));
     button.dataset.relation = thisRound.newTeammates.includes(id) ? 'fresh' : thisRound.teammates.includes(id) ? 'known' : '';
     button.dataset.typeRelation = typed ? typeRelation(id, result) : '';
-    const relation = id === state.person ? '当前同学' : thisRound.newTeammates.includes(id) ? '本次新队友' : thisRound.teammates.includes(id) ? '本次曾合作队友' : '本次其他组同学';
-    button.setAttribute('aria-label', `${displayName(id)}，${relation}${typed ? `，${typeRelationText(id, result)}` : ''}，查看合作情况`);
+    const relation = t(id === state.person ? 'app.relation.selected' : thisRound.newTeammates.includes(id) ? 'app.relation.fresh' : thisRound.teammates.includes(id) ? 'app.relation.known' : 'app.relation.other');
+    button.setAttribute('aria-label', t('app.person.relationAria', { name: displayName(id), relation, type: typed ? t('app.ariaSeparator') + typeRelationText(id, result) : '' }));
   });
   const history = $('#person-history'); history.replaceChildren();
   person.rounds.forEach(round => {
     const item = node('li');
-    item.append(node('strong', '', `作业 ${round.roundIndex + 1} · 第 ${round.groupIndex + 1} 组 · 新认识 ${round.newTeammates.length} 位`), document.createTextNode(round.teammates.map(displayName).join('、')));
+    item.append(node('strong', '', t('app.person.history', { round: round.roundIndex + 1, group: round.groupIndex + 1, count: round.newTeammates.length })), document.createTextNode(joinList(round.teammates.map(displayName))));
     history.append(item);
   });
   const seen = new Set([state.person, ...person.teammates]);
   const unmet = person.eligibleTeammateIds.filter(id => !seen.has(id));
-  $('#unmet-title').textContent = `可合作但尚未合作（${unmet.length}）`;
-  $('#unmet-list').textContent = unmet.length ? unmet.map(displayName).join('、') : '已经全部认识。';
-  if (shouldAnnounce) $('#selection-announcement').textContent = `${displayName(state.person)}，共认识 ${person.uniqueCount} 位不同同学，作业 ${state.round + 1} 有 ${thisRound.newTeammates.length} 位新队友。`;
+  $('#unmet-title').textContent = t('app.person.unmetTitle', { count: unmet.length });
+  $('#unmet-list').textContent = unmet.length ? joinList(unmet.map(displayName)) : t('app.person.noneUnmet');
+  if (shouldAnnounce) setMessage('#selection-announcement', () => t('app.person.announcement', { name: displayName(state.person), count: person.uniqueCount, round: state.round + 1, fresh: thisRound.newTeammates.length }));
 }
 function renderResults() {
   renderComparison();
@@ -510,32 +537,33 @@ function renderResults() {
   state.person = Math.min(state.person, state.config.people);
   state.round = Math.min(state.round, state.config.rounds - 1);
   const m = result.metrics;
-  $('#result-detail').textContent = `${titles[state.objective]} · ${state.config.people} 人 / ${state.config.rounds} 次作业 · ${typeTitles[result.config.typeMode]}`;
+  $('#result-detail').textContent = t('app.result.detail', { title: titles[state.objective], people: state.config.people, rounds: state.config.rounds, type: typeTitles[result.config.typeMode] });
   const fixed = hasFixed(result);
   const minimum = fixed ? m.rotatingMinimumTeammates : m.minimumTeammates;
   const maximum = fixed ? m.rotatingMaximumTeammates : m.maximumTeammates;
   $('#teammate-stat').hidden = fixed && !m.rotatingPeople;
-  $('#teammate-label').textContent = fixed ? '轮换成员认识' : '每人认识';
+  $('#teammate-label').textContent = t(fixed ? 'app.result.rotatingRange' : 'app.result.range');
   $('#teammate-range').textContent = minimum === maximum ? String(minimum) : `${minimum}–${maximum}`;
   const within = result.config.typeMode === 'within';
   const denominator = fixed || within ? m.eligiblePairs : m.possiblePairs;
-  $('#coverage-label').textContent = fixed ? '可安排范围覆盖' : within ? '同类型内覆盖' : '全班覆盖';
-  $('#coverage-value').textContent = `${m.uniquePairs}/${denominator} 对（${(m.uniquePairs / denominator * 100).toFixed(1)}%）`;
+  $('#coverage-label').textContent = t(fixed ? 'app.result.eligibleCoverage' : within ? 'app.result.withinCoverage' : 'app.result.classCoverage');
+  $('#coverage-value').textContent = t('app.result.coverageValue', { pairs: m.uniquePairs, denominator, percent: (m.uniquePairs / denominator * 100).toFixed(1) });
   $('#type-result-note').hidden = !showTypes(result);
   $('#type-result-note').textContent = within
-    ? fixed ? '轮换成员只在同类型内组队；固定组可以跨类型，始终保留原成员。' : `只在同类型内计算可合作范围。全班实际覆盖 ${m.uniquePairs}/${m.possiblePairs} 对（${(m.coverage * 100).toFixed(1)}%）；不同类型之间不安排合作。`
-    : result.config.typeMode === 'mix' ? '每种类型在轮换小组的人数差至多 1，再尽量增加新队友；固定组保留原成员。部分搭档可能因类型均匀分散的要求而无法同组。'
-    : '本方案不使用类型限制；标签与实虚线仅用于查看人员类型。';
+    ? fixed ? t('app.result.withinFixedNote') : t('app.result.withinNote', { pairs: m.uniquePairs, possible: m.possiblePairs, percent: (m.coverage * 100).toFixed(1) })
+    : t(result.config.typeMode === 'mix' ? 'app.result.mixNote' : 'app.result.offNote');
   $('#fixed-result-note').hidden = !fixed;
-  $('#fixed-result-note').textContent = fixed ? `固定 ${m.fixedGroupCount} 组 / ${m.fixedPeople} 人；${m.rotatingPeople ? `其余 ${m.rotatingPeople} 人轮换，公平目标优先照顾轮换成员。轮换范围覆盖 ${m.rotatingUniquePairs}/${m.rotatingEligiblePairs} 对。` : '全部固定，无需轮换。'}固定组重复 ${m.fixedRepeatMeetings} 对次，轮换成员重复 ${m.rotatingRepeatMeetings} 对次。全班实际覆盖 ${m.uniquePairs}/${m.possiblePairs} 对（${(m.coverage * 100).toFixed(1)}%）。` : '';
+  $('#fixed-result-note').textContent = fixed ? t('app.result.fixedNote', { groups: m.fixedGroupCount, people: m.fixedPeople,
+    rotating: m.rotatingPeople ? t('app.result.rotatingNote', { people: m.rotatingPeople, pairs: m.rotatingUniquePairs, eligible: m.rotatingEligiblePairs }) : t('app.result.noRotation'),
+    fixedRepeats: m.fixedRepeatMeetings, rotatingRepeats: m.rotatingRepeatMeetings, pairs: m.uniquePairs, possible: m.possiblePairs, percent: (m.coverage * 100).toFixed(1) }) : '';
   $('#repeat-count').textContent = m.repeatMeetings;
   const select = $('#round-select'); select.replaceChildren();
-  result.assignments.forEach((groups, i) => { const option = node('option', '', `作业 ${i+1} · ${groups.length} 组`); option.value = String(i); select.append(option); });
+  result.assignments.forEach((groups, i) => { const option = node('option', '', t('app.round.option', { number: i + 1, groups: groups.length })); option.value = String(i); select.append(option); });
   select.value = String(state.round);
   const personSelect = $('#person-select'); personSelect.replaceChildren();
   for (let id = 1; id <= state.config.people; id++) { const option = node('option', '', displayName(id)); option.value = String(id); personSelect.append(option); }
-  $('#proof-description').textContent = `${resultQuality(result)}。${result.proof.reason}`;
-  $('#search-description').textContent = `本方案组数：${result.assignments.map(groups=>groups.length).join(' / ')}。本次搜索尝试 ${result.search.iterations} 次调整。未证明最优时，可以再次求解；在同样约束下会保留每种目标已找到的更好方案。`;
+  $('#proof-description').textContent = `${resultQuality(result)}${t('app.sentenceSeparator')}${proofText(result.proof)}`;
+  $('#search-description').textContent = t('app.result.search', { counts: result.assignments.map(groups=>groups.length).join(' / '), iterations: result.search.iterations });
   renderRound();
 }
 function settleJob(job) {
@@ -545,7 +573,7 @@ function settleJob(job) {
   activeJob = null;
   setBusy(false);
   const successful = objectives.filter(goal => job.results[goal]);
-  if (!successful.length) { announce(`求解未完成：${job.errors.join('；') || '请重试'}。原方案已保留。`); return; }
+  if (!successful.length) { announce(() => t('app.job.failed', { errors: job.errors.map(messageValue).join(t('app.errorSeparator')) || t('app.retry') })); return; }
   const same = sameSettings(state.config, job.config);
   const next = {};
   // 两种搜索都提供可行候选；分别按目标择优，避免单次随机搜索造成无意义的支配劣解。
@@ -570,22 +598,22 @@ function settleJob(job) {
   state.round = Math.min(state.round, state.config.rounds - 1);
   renderResults();
   renderTypeSettings();
-  save(job.errors.length ? `已有可行方案；部分搜索未完成：${job.errors.join('；')}。` : '两种目标已求解，可以切换比较。');
+  save(() => job.errors.length ? t('app.job.partial', { errors: job.errors.map(messageValue).join(t('app.errorSeparator')) }) : t('app.job.complete'));
 }
 function startSolve() {
   if (activeJob) return;
   $('#config-error').textContent = '';
   save();
   let config;
-  try { config = readConfig(); } catch (error) { $('#config-error').textContent = error.message; return; }
-  if (typeof Worker === 'undefined') { $('#config-error').textContent = '当前浏览器不支持后台求解，请使用较新的浏览器打开。'; return; }
+  try { config = readConfig(); } catch (error) { setError('#config-error', error); return; }
+  if (typeof Worker === 'undefined') { setMessage('#config-error', () => t('app.job.noWorker')); return; }
   const job = { id:++nextJobId, config, results:{}, errors:[], workers:[], finished:new Set(), started:Date.now() };
   activeJob = job;
   setBusy(true);
-  $('#progress-text').textContent = `正在为 ${config.people} 人、${config.rounds} 次作业比较两种目标；下方保留上次结果。`;
+  setMessage('#progress-text', () => t('app.job.progress', { people: config.people, rounds: config.rounds }));
   for (const goal of objectives) {
     try {
-      const worker = new Worker(new URL('./solver-worker.js?v=colors-1', import.meta.url), { type:'module' });
+      const worker = new Worker(new URL('./solver-worker.js?v=i18n-1', import.meta.url), { type:'module' });
       job.workers.push(worker);
       worker.onmessage = ({ data }) => {
         if (activeJob !== job || data.requestId !== `${job.id}-${goal}` || job.finished.has(goal)) return;
@@ -593,24 +621,24 @@ function startSolve() {
           try {
             validateSchedule(data.result.assignments, config.people, { ...config, objective:goal });
             job.results[goal] = data.result;
-          } catch (error) { job.errors.push(`${titles[goal]}：结果校验失败（${error.message}）`); }
+          } catch (error) { job.errors.push(() => t('app.job.validationFailed', { goal: titles[goal], error: errorText(error) })); }
           job.finished.add(goal); worker.terminate();
-          $('#progress-text').textContent = `${titles[goal]}已完成，正在等待另一种目标…`;
+          setMessage('#progress-text', () => t('app.job.oneComplete', { goal: titles[goal] }));
           settleJob(job);
         } else if (data.type === 'error') {
-          job.errors.push(`${titles[goal]}：${data.message}`); job.finished.add(goal); worker.terminate(); settleJob(job);
+          job.errors.push(() => t('app.job.goalError', { goal: titles[goal], error: errorText(data) })); job.finished.add(goal); worker.terminate(); settleJob(job);
         }
       };
       worker.onerror = event => {
         if (activeJob !== job || job.finished.has(goal)) return;
-        event.preventDefault(); job.errors.push(`${titles[goal]}：后台求解未能运行，请重试`); job.finished.add(goal); worker.terminate(); settleJob(job);
+        event.preventDefault(); job.errors.push(() => t('app.job.workerFailed', { goal: titles[goal] })); job.finished.add(goal); worker.terminate(); settleJob(job);
       };
       worker.postMessage({ type:'solve', requestId:`${job.id}-${goal}`, config:{ ...config, objective:goal }, timeBudgetMs:TIME_BUDGET });
-    } catch (error) { job.errors.push(`${titles[goal]}：${error.message}`); job.finished.add(goal); }
+    } catch (error) { job.errors.push(() => t('app.job.goalError', { goal: titles[goal], error: errorText(error) })); job.finished.add(goal); }
   }
   job.watchdog = setTimeout(() => {
     if (activeJob !== job) return;
-    objectives.forEach(goal => { if (!job.finished.has(goal)) { job.finished.add(goal); job.errors.push(`${titles[goal]}：超时，请缩小规模或重试`); } });
+    objectives.forEach(goal => { if (!job.finished.has(goal)) { job.finished.add(goal); job.errors.push(() => t('app.job.timeout', { goal: titles[goal] })); } });
     settleJob(job);
   }, 30000);
   settleJob(job);
@@ -622,29 +650,29 @@ function cancelSolve() {
   clearTimeout(job.watchdog);
   activeJob = null;
   setBusy(false);
-  announce('已停止求解，原有方案与姓名保持不变。');
+  announce(() => t('app.job.cancelled'));
 }
 function rosterText() {
   const result = currentResult();
-  const lines = [`Groupme · ${state.config.people} 人 / ${state.config.rounds} 次作业`, `目标：${titles[state.objective]}`, `小组规模：${sizeSettingDescription(result.config)}`, `类型方式：${typeTitles[result.config.typeMode]}`, resultQuality(result), ''];
-  const rosterName = id => !showTypes(result) ? displayName(id) : `${displayName(id)}【${typeOf(id, result)}】`;
+  const lines = [t('app.roster.heading', { people: state.config.people, rounds: state.config.rounds }), t('app.roster.objective', { goal: titles[state.objective] }), t('app.roster.size', { size: sizeSettingDescription(result.config) }), t('app.roster.type', { type: typeTitles[result.config.typeMode] }), resultQuality(result), ''];
+  const rosterName = id => !showTypes(result) ? displayName(id) : t('app.roster.typedName', { name: displayName(id), type: typeLabel(id, result) });
   if (hasFixed(result)) {
-    lines.push('固定组从第一轮起保留原成员，已计入每次总组数；类型规则只作用于其余轮换成员。');
-    result.config.fixedGroups.forEach((group, index) => lines.push(`固定组 ${index + 1}：${group.map(rosterName).join('、')}`));
+    lines.push(t('app.roster.fixedRule'));
+    result.config.fixedGroups.forEach((group, index) => lines.push(t('app.roster.fixedGroup', { index: index + 1, names: joinList(group.map(rosterName)) })));
     lines.push('');
   }
   result.assignments.forEach((groups, round) => {
-    lines.push(`作业 ${round+1}（${groups.length} 组）`);
+    lines.push(t('app.roster.assignment', { round: round + 1, groups: groups.length }));
     groups.forEach((group, index) => {
       const fixedIndex = fixedGroupIndex(group[0], result);
-      lines.push(`第 ${index+1} 组${fixedIndex >= 0 ? `（固定组 ${fixedIndex + 1} · 不换人）` : ''}：${group.map(rosterName).join('、')}`);
+      lines.push(t('app.roster.groupLine', { group: index + 1, fixed: fixedIndex >= 0 ? t('app.roster.fixedSuffix', { index: fixedIndex + 1 }) : '', names: joinList(group.map(rosterName)) }));
     }); lines.push('');
   });
   const m = result.metrics;
-  lines.push(`每人认识 ${m.minimumTeammates}–${m.maximumTeammates} 位不同同学；${hasFixed(result) ? `可安排范围 ${m.uniquePairs}/${m.eligiblePairs} 对；` : result.config.typeMode === 'within' ? `同类型内 ${m.uniquePairs}/${m.eligiblePairs} 对；` : ''}全班 ${m.uniquePairs}/${m.possiblePairs} 对不同搭档；重复碰面 ${m.repeatMeetings} 对次。`);
-  if (hasFixed(result)) lines.push(`${m.rotatingPeople ? `轮换 ${m.rotatingPeople} 人，每人认识 ${m.rotatingMinimumTeammates}–${m.rotatingMaximumTeammates} 位；轮换范围 ${m.rotatingUniquePairs}/${m.rotatingEligiblePairs} 对。` : '全部固定，无需轮换。'}固定组重复 ${m.fixedRepeatMeetings} 对次；轮换成员重复 ${m.rotatingRepeatMeetings} 对次。公平目标只比较轮换成员。`);
-  if (result.config.typeMode === 'mix') lines.push('每种类型在轮换小组的人数差至多 1；覆盖比例不代表全部搭档均能在此限制下同组。');
-  if (result.config.typeMode === 'off' && showTypes(result)) lines.push('类型标签仅供查看，本方案未使用类型限制。');
+  lines.push(t('app.roster.statistics', { minimum: m.minimumTeammates, maximum: m.maximumTeammates, scope: hasFixed(result) ? t('app.roster.eligible', { pairs: m.uniquePairs, eligible: m.eligiblePairs }) : result.config.typeMode === 'within' ? t('app.roster.within', { pairs: m.uniquePairs, eligible: m.eligiblePairs }) : '', pairs: m.uniquePairs, possible: m.possiblePairs, repeats: m.repeatMeetings }));
+  if (hasFixed(result)) lines.push((m.rotatingPeople ? t('app.roster.rotating', { people: m.rotatingPeople, minimum: m.rotatingMinimumTeammates, maximum: m.rotatingMaximumTeammates, pairs: m.rotatingUniquePairs, eligible: m.rotatingEligiblePairs }) : t('app.result.noRotation')) + t('app.roster.fixedStatistics', { fixedRepeats: m.fixedRepeatMeetings, rotatingRepeats: m.rotatingRepeatMeetings }));
+  if (result.config.typeMode === 'mix') lines.push(t('app.roster.mixNote'));
+  if (result.config.typeMode === 'off' && showTypes(result)) lines.push(t('app.roster.offNote'));
   return lines.join('\n');
 }
 
@@ -656,7 +684,7 @@ $('#clear-size').addEventListener('click', () => { $('#size-input').value = ''; 
 $('#auto-all-rounds').addEventListener('click', () => {
   document.querySelectorAll('[data-round-input]').forEach(input => { input.value = ''; });
   snapshotDraft(); renderSizeSettings(); $('#config-error').textContent = '';
-  save('各次组数已改为自动。重新求解后应用当前期望人数。');
+  save(() => t('app.size.changedToAuto'));
 });
 $('#settings-form').addEventListener('change', () => { renderTypeSettings(); save(); });
 document.querySelectorAll('input[name="type-mode"]').forEach(input => input.addEventListener('change', () => { $('#config-error').textContent = ''; }));
@@ -667,24 +695,37 @@ $('#round-select').addEventListener('change', () => { state.round = Number($('#r
 $('#person-select').addEventListener('change', () => { state.person = Number($('#person-select').value); renderPerson(); save(); });
 
 const namesDialog = $('#names-dialog');
-function updateNamesCount() { $('#names-count').textContent = `${$('#names-input').value.split(/\r\n?|\n/).filter(line=>line.trim()).length} / ${state.config.people} 位`; }
+let namesEditorDefaults = new Map();
+function updateNamesCount() { $('#names-count').textContent = t('app.names.count', { count: $('#names-input').value.split(/\r\n?|\n/).filter(line=>line.trim()).length, people: state.config.people }); }
+function fillNamesEditor(names) {
+  namesEditorDefaults = new Map();
+  $('#names-input').value = names.map((name, index) => {
+    const shown = localizeName(name, index + 1);
+    if (name === `${index + 1}号`) namesEditorDefaults.set(index, shown);
+    return shown;
+  }).join('\n');
+}
+function translateNamesDialog() {
+  $('#names-title').textContent = t('app.names.title', { people: state.config.people });
+  $('#names-hint').textContent = t('app.names.hint');
+  updateNamesCount();
+}
 $('#edit-names').addEventListener('click', () => {
-  $('#names-input').value = state.names.slice(0,state.config.people).join('\n');
+  fillNamesEditor(state.names.slice(0, state.config.people));
   $('#names-input').maxLength = state.config.people * 42;
-  $('#names-title').textContent = `填写这 ${state.config.people} 位同学的姓名`;
-  $('#names-hint').textContent = '对应当前显示的分组。每行一位；只保存在你的浏览器中。';
+  translateNamesDialog();
   $('#names-error').textContent = ''; $('#names-input').removeAttribute('aria-invalid'); updateNamesCount(); namesDialog.showModal();
 });
 $('#close-names').addEventListener('click', () => namesDialog.close());
 $('#names-input').addEventListener('input', () => { updateNamesCount(); $('#names-error').textContent=''; $('#names-input').removeAttribute('aria-invalid'); });
-$('#restore-numbers').addEventListener('click', () => { $('#names-input').value = defaultNames(state.config.people).join('\n'); $('#names-error').textContent=''; $('#names-input').removeAttribute('aria-invalid'); updateNamesCount(); });
+$('#restore-numbers').addEventListener('click', () => { fillNamesEditor(defaultNames(state.config.people)); $('#names-error').textContent=''; $('#names-input').removeAttribute('aria-invalid'); updateNamesCount(); });
 $('#names-form').addEventListener('submit', event => {
   event.preventDefault();
   try {
-    const names = parseNames($('#names-input').value, state.config.people);
+    const names = parseNames($('#names-input').value, state.config.people).map((name, index) => namesEditorDefaults.get(index) === name ? `${index + 1}号` : name);
     state.names = [...names, ...state.names.slice(state.config.people)];
-    renderResults(); renderFixedSettings(); namesDialog.close(); save('姓名已更新，分组位置保持不变。');
-  } catch (error) { $('#names-error').textContent=error.message; $('#names-input').setAttribute('aria-invalid','true'); $('#names-input').focus(); }
+    renderResults(); renderFixedSettings(); namesDialog.close(); save(() => t('app.names.saved'));
+  } catch (error) { setError('#names-error', error); $('#names-input').setAttribute('aria-invalid','true'); $('#names-input').focus(); }
 });
 
 const fixedDialog = $('#fixed-dialog');
@@ -700,22 +741,22 @@ function renderFixedPicker() {
     if (used.has(id) || query && !`${id} ${nameOf(id)}`.toLocaleLowerCase().includes(query)) continue;
     const button = node('button', 'fixed-person', nameOf(id)); button.type = 'button';
     button.dataset.fixedPerson = String(id);
-    button.setAttribute('aria-label', `选择 ${id} 号 ${nameOf(id)}`);
+    button.setAttribute('aria-label', t('app.fixed.selectPerson', { id, name: nameOf(id) }));
     button.setAttribute('aria-pressed', String(fixedSelection.has(id)));
-    if (nameOf(id) !== `${id}号`) button.append(node('small', '', `${id}号`));
+    if (rawNameOf(id) !== `${id}号`) button.append(node('small', '', t('app.personId', { id })));
     button.addEventListener('click', () => {
       if (fixedSelection.has(id)) fixedSelection.delete(id); else fixedSelection.add(id);
       button.setAttribute('aria-pressed', String(fixedSelection.has(id))); updateFixedSelection();
     });
     container.append(button); visible++;
   }
-  if (!visible) container.append(node('p', 'small-note', used.size === fixedEditorPeople ? '所有同学都已加入固定组。' : '没有匹配的未固定同学。'));
+  if (!visible) container.append(node('p', 'small-note', t(used.size === fixedEditorPeople ? 'app.fixed.everyoneAdded' : 'app.fixed.noMatches')));
   updateFixedSelection();
 }
 function updateFixedSelection() {
   const count = fixedSelection.size;
   $('#add-fixed-selection').disabled = count < 2;
-  $('#add-fixed-selection').textContent = count ? `将所选 ${count} 人固定为一组` : '选择至少 2 位同学';
+  $('#add-fixed-selection').textContent = count ? t('app.fixed.addSelection', { count }) : t('app.fixed.selectMinimum');
   $('#clear-fixed-selection').disabled = !count;
   $('#fixed-error').textContent = '';
 }
@@ -724,19 +765,19 @@ function renderFixedEditor() {
   fixedEditorGroups.forEach((group, index) => {
     const row = node('div', 'fixed-editor-group');
     const detail = node('div');
-    detail.append(node('strong', '', `固定组 ${index + 1} · ${group.length} 人`), node('p', '', group.map(id => `${id}号 ${nameOf(id)}${id > fixedEditorPeople ? '（超出总人数）' : ''}`).join('、')));
-    const remove = node('button', 'button button-plain', '移除'); remove.type = 'button';
-    remove.setAttribute('aria-label', `移除固定组 ${index + 1}`);
+    detail.append(node('strong', '', t('app.fixed.groupSize', { index: index + 1, count: group.length })), node('p', '', joinList(group.map(id => `${t('app.personId', { id })} ${nameOf(id)}${id > fixedEditorPeople ? t('app.fixed.outOfRange') : ''}`))));
+    const remove = node('button', 'button button-plain', t('app.remove')); remove.type = 'button';
+    remove.setAttribute('aria-label', t('app.fixed.removeAria', { index: index + 1 }));
     remove.addEventListener('click', () => { fixedEditorGroups.splice(index, 1); renderFixedEditor(); });
     row.append(detail, remove); container.append(row);
   });
-  if (!fixedEditorGroups.length) container.append(node('p', 'small-note', '还没有固定小组。'));
+  if (!fixedEditorGroups.length) container.append(node('p', 'small-note', t('app.fixed.emptyEditor')));
   $('#fixed-bulk').value = fixedEditorGroups.map(group => group.join(', ')).join('\n');
   renderFixedPicker();
   const count = fixedEditorGroups.flat().length;
-  $('#fixed-editor-summary').textContent = `当前列表：${fixedEditorGroups.length} 个固定组，${count} 位固定成员。未加入固定组的同学继续轮换。`;
+  $('#fixed-editor-summary').textContent = t('app.fixed.editorSummary', { groups: fixedEditorGroups.length, people: count });
   try { normalizeFixedGroups(fixedEditorGroups, fixedEditorPeople); }
-  catch (error) { $('#fixed-error').textContent = error.message; }
+  catch (error) { setError('#fixed-error', error); }
 }
 $('#edit-fixed').addEventListener('click', () => {
   if (activeJob || !validPeople(draftPeople())) return;
@@ -753,29 +794,29 @@ $('#add-fixed-selection').addEventListener('click', () => {
   try {
     fixedEditorGroups = normalizeFixedGroups([...fixedEditorGroups, [...fixedSelection]], fixedEditorPeople);
     fixedSelection.clear(); renderFixedEditor();
-  } catch (error) { $('#fixed-error').textContent = error.message; }
+  } catch (error) { setError('#fixed-error', error); }
 });
 $('#apply-fixed-bulk').addEventListener('click', () => {
   try {
     const lines = $('#fixed-bulk').value.split(/\r\n?|\n/).map(line => line.trim()).filter(Boolean);
     const groups = lines.map((line, index) => {
       const ids = line.split(/[,，\s]+/).filter(Boolean);
-      if (ids.some(id => !/^[1-9]\d*$/.test(id))) throw new Error(`第 ${index + 1} 行请只填写正整数编号，用逗号或空格分隔。`);
+      if (ids.some(id => !/^[1-9]\d*$/.test(id))) throw uiError('app.fixed.invalidBulkLine', { line: index + 1 });
       return ids.map(Number);
     });
     fixedEditorGroups = normalizeFixedGroups(groups, fixedEditorPeople);
     fixedSelection.clear(); renderFixedEditor();
-  } catch (error) { $('#fixed-error').textContent = error.message; }
+  } catch (error) { setError('#fixed-error', error); }
 });
 $('#fixed-form').addEventListener('submit', event => {
   event.preventDefault();
   try {
-    if (fixedSelection.size) throw new Error('请先将所选成员加入固定组，或点击「取消选择」，再保存。');
-    if ($('#fixed-bulk').value !== fixedEditorGroups.map(group => group.join(', ')).join('\n')) throw new Error('批量编号尚未填入列表，请先点击「填入固定组列表」，或关闭并重新编辑。');
+    if (fixedSelection.size) throw uiError('app.fixed.unappliedSelection');
+    if ($('#fixed-bulk').value !== fixedEditorGroups.map(group => group.join(', ')).join('\n')) throw uiError('app.fixed.unappliedBulk');
     fixedDraft = normalizeFixedGroups(fixedEditorGroups, fixedEditorPeople);
     fixedDialog.close(); renderTypeSettings(); $('#config-error').textContent = '';
-    save('固定小组已保存。重新求解后应用到分组；下方原有结果保持不变。');
-  } catch (error) { $('#fixed-error').textContent = error.message; }
+    save(() => t('app.fixed.saved'));
+  } catch (error) { setError('#fixed-error', error); }
 });
 
 const typesDialog = $('#types-dialog');
@@ -784,17 +825,16 @@ let editorCatalog = [];
 let quickCategoryCount = 2;
 let quickLabels = [];
 function editorTypeFields() { return [...document.querySelectorAll('[data-type-id]')]; }
-function updateEditorSummary() {
+function updateEditorSummary(synchronize = true) {
   const types = editorTypeFields().map(input => input.value);
-  $('#type-editor-summary').textContent = `当前列表：${typeCounts(types).map(([label, count]) => `${label} ${count} 人`).join(' · ')}`;
-  $('#types-bulk').value = types.join('\n');
-  $('#types-error').textContent = '';
+  $('#type-editor-summary').textContent = t('app.typeEditor.summary', { types: typeCounts(types).map(([label, count]) => t('app.type.count', { type: localizeType(label), count })).join(' · ') });
+  if (synchronize) { $('#types-bulk').value = types.join('\n'); $('#types-error').textContent = ''; }
 }
 function setEditorTypes(types) {
   editorCatalog = [...new Set([...editorCatalog, ...types, '未分类'])];
   editorTypeFields().forEach((select, index) => {
     select.replaceChildren(...editorCatalog.map(label => {
-      const option = node('option', '', label); option.value = label; return option;
+      const option = node('option', '', localizeType(label)); option.value = label; return option;
     }));
     select.value = types[index];
   });
@@ -809,13 +849,13 @@ function updateQuickPreview() {
   const preview = $('#quick-type-preview');
   try {
     const plan = readQuickPlan();
-    $('#quick-type-remainder').textContent = `${plan.sizes.at(-1)} 人`;
-    preview.textContent = `预览：${plan.ranges.map(({ label, count, start, end }) => `${label} ${count} 人（${start === end ? start : `${start}–${end}`}号）`).join('；')}。点击应用后填入列表。`;
+    $('#quick-type-remainder').textContent = t('app.peopleCount', { count: plan.sizes.at(-1) });
+    preview.textContent = t('app.quick.preview', { ranges: plan.ranges.map(({ label, count, start, end }) => t('app.quick.range', { label: localizeType(label), count, range: start === end ? start : `${start}–${end}` })).join(t('app.errorSeparator')) });
     preview.classList.remove('input-error');
     $('#apply-quick-types').disabled = false;
   } catch (error) {
     $('#quick-type-remainder').textContent = '—';
-    preview.textContent = error.message;
+    preview.textContent = errorText(error);
     preview.classList.add('input-error');
     $('#apply-quick-types').disabled = true;
   }
@@ -826,20 +866,20 @@ function renderQuickFields() {
   const fields = $('#quick-type-fields'); fields.replaceChildren();
   for (let i = 0; i < quickCategoryCount; i++) {
     const card = node('div', 'quick-type-card');
-    const label = node('label', '', `第 ${i + 1} 类名称`);
+    const label = node('label', '', t('app.quick.categoryName', { number: i + 1 }));
     const input = node('input'); input.type = 'text'; input.maxLength = 40;
     input.value = quickLabels[i]; input.dataset.quickLabel = String(i);
     input.addEventListener('input', () => { quickLabels[i] = input.value; updateQuickPreview(); });
     label.append(input); card.append(label);
     if (i < quickCategoryCount - 1) {
-      const countLabel = node('label', '', `第 ${i + 1} 类人数`);
+      const countLabel = node('label', '', t('app.quick.categorySize', { number: i + 1 }));
       const count = node('input'); count.type = 'number'; count.min = '1'; count.max = String(typesEditorPeople - quickCategoryCount + 1); count.step = '1';
       count.value = sizes[i]; count.dataset.quickSize = String(i);
       count.addEventListener('input', updateQuickPreview);
       countLabel.append(count); card.append(countLabel);
     } else {
-      const remainder = node('div', 'quick-type-remaining', '剩余人数（自动）');
-      const value = node('output'); value.id = 'quick-type-remainder'; value.setAttribute('aria-label', `第 ${i + 1} 类剩余人数`);
+      const remainder = node('div', 'quick-type-remaining', t('app.quick.remaining'));
+      const value = node('output'); value.id = 'quick-type-remainder'; value.setAttribute('aria-label', t('app.quick.remainingAria', { number: i + 1 }));
       remainder.append(value); card.append(remainder);
     }
     fields.append(card);
@@ -850,15 +890,15 @@ $('#edit-types').addEventListener('click', () => {
   typesEditorPeople = draftPeople();
   if (!validPeople(typesEditorPeople) || activeJob) return;
   ensureTypes(typesEditorPeople);
-  $('#types-title').textContent = `${typesEditorPeople} 位同学的类型`;
-  $('#types-hint').textContent = '可快捷划分，再逐人调整。标签按编号绑定；保存后重新求解才会应用到结果，关闭则放弃本次编辑。';
+  $('#types-title').textContent = t('app.typeEditor.title', { people: typesEditorPeople });
+  $('#types-hint').textContent = t('app.typeEditor.hint');
   $('#types-error').textContent = '';
   $('#type-editor-status').textContent = '';
   $('#new-type-label').value = '';
   $('.bulk-types').open = false;
   editorCatalog = [...new Set(typeDraft.slice(0, typesEditorPeople))];
   quickLabels = editorCatalog.filter(label => label !== '未分类').slice(0, 3);
-  for (const label of ['类型 A', '类型 B', '类型 C']) if (quickLabels.length < 3 && !quickLabels.includes(label)) quickLabels.push(label);
+  for (const letter of ['A', 'B', 'C']) { const label = t('app.quick.defaultName', { letter }); if (quickLabels.length < 3 && !quickLabels.includes(label)) quickLabels.push(label); }
   quickCategoryCount = 2;
   const rows = $('#type-rows'); rows.replaceChildren();
   for (let id = 1; id <= typesEditorPeople; id++) {
@@ -866,7 +906,7 @@ $('#edit-types').addEventListener('click', () => {
     const person = node('span', 'type-row-person');
     person.append(node('small', '', String(id).padStart(2, '0')), node('span', '', nameOf(id)));
     const select = node('select'); select.dataset.typeId = String(id);
-    select.setAttribute('aria-label', `${id} 号同学 ${nameOf(id)} 的类型`);
+    select.setAttribute('aria-label', t('app.typeEditor.personAria', { id, name: nameOf(id) }));
     select.addEventListener('change', () => { updateEditorSummary(); $('#type-editor-status').textContent = ''; });
     row.append(person, select); rows.append(row);
   }
@@ -882,20 +922,21 @@ $('#balance-quick-types').addEventListener('click', renderQuickFields);
 $('#apply-quick-types').addEventListener('click', () => {
   try {
     const plan = readQuickPlan(); setEditorTypes(plan.types);
-    $('#type-editor-status').textContent = `已按编号填入 ${quickCategoryCount} 类，可继续逐人调整；点击「保存类型设置」后保留。`;
-  } catch (error) { $('#types-error').textContent = error.message; }
+    const count = quickCategoryCount;
+    setMessage('#type-editor-status', () => t('app.quick.applied', { count }));
+  } catch (error) { setError('#types-error', error); }
 });
 function addEditorLabel() {
   try {
     const value = $('#new-type-label').value.trim();
-    if (!value) throw new Error('请先填写新类型的名称。');
+    if (!value) throw uiError('app.typeEditor.enterLabel');
     const [label] = normalizeTypeLabels([value]);
-    if (editorCatalog.includes(label)) throw new Error('这个类型已经在下拉选项中，可以直接选择。');
+    if (editorCatalog.includes(label)) throw uiError('app.typeEditor.duplicateLabel');
     editorCatalog.push(label);
     setEditorTypes(editorTypeFields().map(select => select.value));
     $('#new-type-label').value = '';
-    $('#type-editor-status').textContent = `已添加“${label}”，可在下方任意同学的下拉菜单中选择。`;
-  } catch (error) { $('#types-error').textContent = error.message; }
+    setMessage('#type-editor-status', () => t('app.typeEditor.added', { label: localizeType(label) }));
+  } catch (error) { setError('#types-error', error); }
 }
 $('#add-type-label').addEventListener('click', addEditorLabel);
 $('#new-type-label').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); addEditorLabel(); } });
@@ -904,10 +945,10 @@ $('#apply-type-bulk').addEventListener('click', () => {
   try {
     let lines = $('#types-bulk').value.replace(/\r\n?/g, '\n').split('\n');
     if (lines.length === typesEditorPeople + 1 && lines.at(-1) === '') lines.pop();
-    if (lines.length !== typesEditorPeople) throw new Error(`请按编号填写恰好 ${typesEditorPeople} 行，当前为 ${lines.length} 行；空行也占一位。`);
+    if (lines.length !== typesEditorPeople) throw uiError('app.typeEditor.bulkCount', { people: typesEditorPeople, count: lines.length });
     setEditorTypes(normalizeTypeLabels(lines));
-    $('#type-editor-status').textContent = '已填入列表，可继续逐人调整；保存后保留。';
-  } catch (error) { $('#types-error').textContent = error.message; }
+    setMessage('#type-editor-status', () => t('app.typeEditor.bulkApplied'));
+  } catch (error) { setError('#types-error', error); }
 });
 $('#types-form').addEventListener('submit', event => {
   event.preventDefault();
@@ -915,16 +956,65 @@ $('#types-form').addEventListener('submit', event => {
     const types = normalizeTypeLabels(editorTypeFields().map(input => input.value));
     typeDraft = [...types, ...typeDraft.slice(typesEditorPeople)];
     typesDialog.close(); renderTypeSettings(); $('#config-error').textContent = '';
-    save('类型设置已保存。重新求解后应用到分组。');
-  } catch (error) { $('#types-error').textContent = error.message; }
+    save(() => t('app.typeEditor.saved'));
+  } catch (error) { setError('#types-error', error); }
 });
 $('#copy-rosters').addEventListener('click', async () => {
   const text = rosterText();
-  try { if (!navigator.clipboard?.writeText) throw new Error('unavailable'); await navigator.clipboard.writeText(text); announce('已复制当前目标的全部作业名单。'); }
+  try { if (!navigator.clipboard?.writeText) throw new Error('unavailable'); await navigator.clipboard.writeText(text); announce(() => t('app.roster.copied')); }
   catch { $('#copy-text').value=text; $('#copy-dialog').showModal(); $('#copy-text').focus(); $('#copy-text').select(); }
 });
 $('#close-copy').addEventListener('click', () => $('#copy-dialog').close());
 
+function translateTypesDialog() {
+  $('#types-title').textContent = t('app.typeEditor.title', { people: typesEditorPeople });
+  $('#types-hint').textContent = t('app.typeEditor.hint');
+  for (const select of editorTypeFields()) {
+    const id = Number(select.dataset.typeId);
+    select.setAttribute('aria-label', t('app.typeEditor.personAria', { id, name: nameOf(id) }));
+    select.closest('.type-row').querySelector('.type-row-person span').textContent = nameOf(id);
+    for (const option of select.options) option.textContent = localizeType(option.value);
+  }
+  updateEditorSummary(false);
+  for (const input of document.querySelectorAll('[data-quick-label]')) {
+    input.parentElement.firstChild.textContent = t('app.quick.categoryName', { number: Number(input.dataset.quickLabel) + 1 });
+  }
+  for (const input of document.querySelectorAll('[data-quick-size]')) {
+    input.parentElement.firstChild.textContent = t('app.quick.categorySize', { number: Number(input.dataset.quickSize) + 1 });
+  }
+  $('.quick-type-remaining').firstChild.textContent = t('app.quick.remaining');
+  $('#quick-type-remainder').setAttribute('aria-label', t('app.quick.remainingAria', { number: quickCategoryCount }));
+  updateQuickPreview();
+}
+function refreshLanguage() {
+  // 只重译仍在显示的消息，输入操作可能已经清除了旧提示。
+  const visibleMessages = [...messageBindings].filter(([selector, binding]) => $(selector)?.textContent === binding.text);
+  messageBindings.clear();
+  applyPageTranslations();
+  updateRoundInputLanguage();
+  renderTypeSettings();
+  renderResults();
+  if (namesDialog.open) translateNamesDialog();
+  if (typesDialog.open) translateTypesDialog();
+  if (fixedDialog.open) {
+    const bulkInput = $('#fixed-bulk');
+    const bulkDraft = bulkInput.value;
+    const selection = [bulkInput.selectionStart, bulkInput.selectionEnd, bulkInput.selectionDirection];
+    const focusedPerson = document.activeElement?.dataset.fixedPerson;
+    renderFixedEditor();
+    bulkInput.value = bulkDraft;
+    bulkInput.setSelectionRange(...selection);
+    if (focusedPerson) document.querySelector(`[data-fixed-person="${focusedPerson}"]`)?.focus();
+  }
+  if ($('#copy-dialog').open) $('#copy-text').value = rosterText();
+  for (const [selector, { value }] of visibleMessages) setMessage(selector, value);
+}
+$('#language-select').addEventListener('change', event => {
+  if (setLanguage(event.target.value)) refreshLanguage();
+});
+
+applyPageTranslations();
+$('#language-select').value = getLanguage();
 restore();
 fillSettings();
 renderResults();
