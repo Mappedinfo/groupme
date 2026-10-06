@@ -1,8 +1,8 @@
 import {
   LIMITS, validateConfig, validateSchedule, analyzeSchedule, evaluateProof,
   compareMetrics, parseNames, defaultNames, getSizeOptions, getAutomaticGroupCounts, normalizeFixedGroups,
-} from './grouping.js?v=fixed-1';
-import { quickTypeSizes, createQuickTypePlan, normalizeTypeLabels } from './type-editor.js?v=fixed-1';
+} from './grouping.js?v=colors-1';
+import { quickTypeSizes, createQuickTypePlan, normalizeTypeLabels } from './type-editor.js?v=colors-1';
 
 const $ = selector => document.querySelector(selector);
 const objectives = ['fair', 'coverage'];
@@ -585,7 +585,7 @@ function startSolve() {
   $('#progress-text').textContent = `正在为 ${config.people} 人、${config.rounds} 次作业比较两种目标；下方保留上次结果。`;
   for (const goal of objectives) {
     try {
-      const worker = new Worker(new URL('./solver-worker.js?v=fixed-1', import.meta.url), { type:'module' });
+      const worker = new Worker(new URL('./solver-worker.js?v=colors-1', import.meta.url), { type:'module' });
       job.workers.push(worker);
       worker.onmessage = ({ data }) => {
         if (activeJob !== job || data.requestId !== `${job.id}-${goal}` || job.finished.has(goal)) return;

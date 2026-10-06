@@ -8,8 +8,8 @@
   <meta name="description" content="自由设置人数、多次作业、各次组数与类型，选择不同类型混合或同类内组队，比较两种自动分组方案。">
   <title>Groupme · 多认识一些新同学</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./src/style.css?v=fixed-1">
-  <script type="module" src="./src/app.js?v=fixed-1"></script>
+  <link rel="stylesheet" href="./src/style.css?v=colors-1">
+  <script type="module" src="./src/app.js?v=colors-1"></script>
 </head>
 <body>
   <a class="skip-link" href="#settings">跳到分组设置</a>
@@ -84,7 +84,7 @@
           <div class="groups-toolbar"><h3 id="groups-title"><label for="round-select">查看作业</label></h3><select id="round-select"></select></div>
           <p id="round-summary" class="small-note"></p>
           <div id="groups" class="groups-grid"></div>
-          <div class="legend"><span><i class="legend-dot selected"></i>当前同学</span><span><i class="legend-dot fresh"></i>本次新队友</span><span><i class="legend-dot known"></i>本次曾合作队友</span></div>
+          <div class="legend"><span><i class="legend-swatch selected" aria-hidden="true"></i>当前同学</span><span><i class="legend-swatch fresh" aria-hidden="true"></i>本次新队友</span><span><i class="legend-swatch known" aria-hidden="true"></i>本次曾合作队友</span></div>
           <div id="type-legend" class="type-legend" hidden><p id="type-reference"></p><div class="legend"><span><i class="legend-border same" aria-hidden="true"></i>同类型 · 实线</span><span><i class="legend-border different" aria-hidden="true"></i>不同类型 · 虚线</span></div></div>
         </section>
         <aside class="person-panel" aria-labelledby="person-title">

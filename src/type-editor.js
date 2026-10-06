@@ -1,4 +1,4 @@
-import { LIMITS } from './grouping.js?v=fixed-1';
+import { LIMITS } from './grouping.js?v=colors-1';
 
 function validatePeople(people) {
   if (!Number.isInteger(people) || people < LIMITS.minPeople || people > LIMITS.maxPeople) {
